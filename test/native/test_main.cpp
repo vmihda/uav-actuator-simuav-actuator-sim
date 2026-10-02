@@ -27,6 +27,7 @@ void loop();
 int failures = 0;
 int cases = 0;
 void runFsmHeartbeatTests();
+void runSettingsTests();
 static ActuatorFsm* commandTarget = nullptr;
 bool dispatchTestCommand(Command command, uint32_t now) {
   return commandTarget->handle(command, now);
@@ -587,6 +588,7 @@ int main() {
     CHECK(http.response.find("\"pulse_active\":false") != std::string::npos);
   });
   runFsmHeartbeatTests();
+  runSettingsTests();
   std::cout << cases - failures << '/' << cases << " cases passed\n";
   return failures == 0 ? 0 : 1;
 }

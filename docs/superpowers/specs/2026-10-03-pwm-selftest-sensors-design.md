@@ -56,8 +56,8 @@ state, so STOP wins without a separate priority mechanism.
 ## Settings
 
 `/settings.json` lives in LittleFS next to `/info.txt` and is installed by the
-filesystem image from `data/`. It is parsed with ArduinoJson 7 (version pinned
-in `platformio.ini`) and validated strictly at boot.
+filesystem image from `data/`. It is parsed with ArduinoJson 7.4.3 (single header
+vendored in `lib/ArduinoJson`) and validated strictly at boot.
 
 ```json
 {
@@ -91,7 +91,7 @@ Validation (any failure → FAULT `SettingsInvalid`):
 
 Each failure is logged with the field and reason, for example
 `POST:SETTINGS:FAIL:pwm.start.min_us must exceed pwm.stop.max_us`. JSON syntax
-errors include the ArduinoJson error and offset. Settings load once at boot;
+errors include the ArduinoJson error kind (it reports no offset). Settings load once at boot;
 recovery cannot clear `SettingsInvalid`, which requires a corrected image and a
 reboot.
 
