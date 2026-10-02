@@ -41,11 +41,21 @@ Status refreshes every second. The actuator pulse is simulated; this firmware ha
 const elements = Object.fromEntries(['state','timer','pulse','error','start','stop','deploy','message'].map(id => [id,document.getElementById(id)]));
 const errors = ['None','Self-test failed','Invalid command','Control timeout','UART line overflow','Storage failure'];
 let current = null;
-let pending = false;
+let commandPending = false;
+let inFlight = 0;
+let issued = 0;
+let shown = 0;
 function buttons() {
-  elements.start.disabled = pending || !current || current.state !== 'SAFE';
-  elements.stop.disabled = pending || !current || current.state === 'POST';
-  elements.deploy.disabled = pending || !current || current.state !== 'ARMED' || current.err !== 0;
+  // Only a command in flight locks the controls; background polling never does.
+  elements.start.disabled = commandPending || !current || current.state !== 'SAFE';
+  elements.stop.disabled = commandPending || !current || current.state === 'POST';
+  elements.deploy.disabled = commandPending || !current || current.state !== 'ARMED' || current.err !== 0;
+}
+function show(seq, update) {
+  // A response to an older request must not overwrite a newer one.
+  if (seq < shown) return;
+  shown = seq;
+  update();
 }
 function render(data) {
   if (!data || !['POST','SAFE','ARMING','ARMED','ACTUATED','FAULT'].includes(data.state)
@@ -73,24 +83,31 @@ function unavailable(state, message) {
   elements.message.textContent = message;
 }
 async function request(path, method = 'GET') {
-  if (pending) return;
-  pending = true;
-  buttons();
+  const command = method !== 'GET';
+  if (command ? commandPending : inFlight > 0) return;
+  const seq = ++issued;
+  ++inFlight;
+  if (command) {
+    commandPending = true;
+    buttons();
+  }
   const controller = new AbortController();
   const deadline = setTimeout(() => controller.abort(), 2000);
   try {
     const response = await fetch(path, {method,cache:'no-store',signal:controller.signal});
     if (response.status === 503) {
-      unavailable('UNKNOWN', 'Controller busy: command outcome unknown. Refreshing status...');
+      show(seq, () => unavailable('UNKNOWN', 'Controller busy: command outcome unknown. Refreshing status...'));
       return;
     }
     if (!response.ok && response.status !== 409) throw new Error('HTTP ' + response.status);
-    render(await response.json());
+    const data = await response.json();
+    show(seq, () => render(data));
   } catch (error) {
-    unavailable('DISCONNECTED', 'Connection lost. Reconnecting...');
+    show(seq, () => unavailable('DISCONNECTED', 'Connection lost. Reconnecting...'));
   } finally {
     clearTimeout(deadline);
-    pending = false;
+    --inFlight;
+    if (command) commandPending = false;
     buttons();
   }
 }

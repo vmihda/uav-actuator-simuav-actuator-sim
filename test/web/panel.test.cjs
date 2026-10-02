@@ -16,6 +16,8 @@ function fixture() {
   let next = {state:'SAFE', time_left:0, err:0, pulse_active:false, accepted:true, arming_seconds:10};
   let fail = false;
   let busy = false;
+  let hold = false;
+  const held = [];
   let poll;
   vm.runInNewContext(script, {
     document:{getElementById:id => elements[id]}, AbortController,
@@ -24,12 +26,15 @@ function fixture() {
       calls.push({url, method:options.method});
       if (fail) throw new Error('offline');
       if (busy) return {ok:false, status:503, json:async()=>({error:'command_outcome_unknown'})};
+      if (hold) return new Promise(resolve => held.push(data => resolve({ok:true, status:200, json:async()=>data})));
       return {ok:true, status:200, json:async()=>next};
     }
   });
   return {elements,calls,poll:()=>poll(),
     status(value) { next = {...next,...value}; }, offline() { fail = true; },
     busy(value) { busy = value; },
+    hold(value) { hold = value; },
+    release(index, value) { held[index]({...next,...value}); },
     click(id) { if (!elements[id].disabled) elements[id].callbacks.click(); }};
 }
 
@@ -80,5 +85,31 @@ test('unconfirmed command reports unknown outcome and locks controls until refre
   for (const action of ['start','stop','deploy']) assert.equal(ui.elements[action].disabled, true);
   ui.busy(false); ui.status({state:'ACTUATED',pulse_active:true}); ui.poll(); await settle();
   assert.equal(ui.elements.state.textContent, 'ACTUATED');
+  assert.equal(ui.elements.stop.disabled, false);
+});
+
+test('status polling never disables or flickers the controls', async () => {
+  const ui = fixture(); await settle();
+  ui.hold(true); ui.poll();
+  assert.equal(ui.calls.at(-1).url, '/status');
+  assert.equal(ui.elements.start.disabled, false);
+  assert.equal(ui.elements.stop.disabled, false);
+});
+
+test('a click during an in-flight poll is sent, not dropped', async () => {
+  const ui = fixture(); await settle();
+  ui.hold(true); ui.poll(); ui.click('start');
+  assert.deepEqual(ui.calls.at(-1), {url:'/start',method:'POST'});
+  assert.equal(ui.elements.start.disabled, true);
+  assert.equal(ui.elements.stop.disabled, true);
+});
+
+test('an older poll response cannot overwrite a newer command response', async () => {
+  const ui = fixture(); await settle();
+  ui.hold(true); ui.poll(); ui.click('start');
+  ui.release(1, {state:'ARMING',time_left:10}); await settle();
+  ui.release(0, {state:'SAFE',time_left:0}); await settle();
+  assert.equal(ui.elements.state.textContent, 'ARMING');
+  assert.equal(ui.elements.start.disabled, true);
   assert.equal(ui.elements.stop.disabled, false);
 });
