@@ -12,6 +12,7 @@
 #include <WiFi.h>
 #include <LittleFS.h>
 #include "event_log.h"
+#include "harness.h"
 
 uint32_t fakeNow = 0;
 int fakePins[40] = {};
@@ -23,11 +24,9 @@ HardwareSerial Serial2;
 void setup();
 void loop();
 
-#define CHECK(condition) do { if (!(condition)) throw std::runtime_error( \
-  std::string(__FILE__) + ":" + std::to_string(__LINE__) + ": " #condition); } while (false)
-
-static int failures = 0;
-static int cases = 0;
+int failures = 0;
+int cases = 0;
+void runFsmHeartbeatTests();
 static ActuatorFsm* commandTarget = nullptr;
 bool dispatchTestCommand(Command command, uint32_t now) {
   return commandTarget->handle(command, now);
@@ -36,15 +35,6 @@ CommandResult dispatchTestWebCommand(Command command, uint32_t now) {
   return commandTarget->handle(command, now) ? CommandResult::Accepted : CommandResult::Rejected;
 }
 CommandResult unavailableWebCommand(Command, uint32_t) { return CommandResult::Unavailable; }
-template <typename Test>
-void test(const char* name, Test body) {
-  ++cases;
-  try { body(); std::cout << "PASS " << name << '\n'; }
-  catch (const std::exception& error) {
-    ++failures;
-    std::cerr << "FAIL " << name << ": " << error.what() << '\n';
-  }
-}
 
 ParseResult feed(UartLineParser& parser, const std::string& line) {
   ParseResult result{ParseKind::None, Command::Invalid};
@@ -596,6 +586,7 @@ int main() {
     CHECK(http.response.find("\"state\":\"SAFE\"") != std::string::npos);
     CHECK(http.response.find("\"pulse_active\":false") != std::string::npos);
   });
+  runFsmHeartbeatTests();
   std::cout << cases - failures << '/' << cases << " cases passed\n";
   return failures == 0 ? 0 : 1;
 }

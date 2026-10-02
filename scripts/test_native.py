@@ -15,7 +15,7 @@ def main():
     output = ROOT / ".pio" / "native"
     output.mkdir(parents=True, exist_ok=True)
     executable = output / "contract-tests"
-    sources = ["test/native/test_main.cpp", "src/fsm.cpp", "src/uart_protocol.cpp",
+    sources = ["test/native/test_main.cpp", "test/native/test_fsm_heartbeat.cpp", "src/fsm.cpp", "src/uart_protocol.cpp",
                "src/indicator_pattern.cpp", "src/uart_handler.cpp",
                "src/web_server.cpp", "src/indicators.cpp", "src/event_log.cpp",
                "src/main.cpp"]
