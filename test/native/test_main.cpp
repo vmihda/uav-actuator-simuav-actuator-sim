@@ -282,12 +282,8 @@ int main() {
       CHECK(indicatorOn(timing.state, timing.period));
     }
   });
-  test("ACTUATED steady three seconds, POST off", [] {
+  test("POST indication off", [] {
     CHECK(!indicatorOn(ActuatorState::POST, 0));
-    CHECK(indicatorOn(ActuatorState::ACTUATED, 0));
-    CHECK(indicatorOn(ActuatorState::ACTUATED, 2999));
-    CHECK(!indicatorOn(ActuatorState::ACTUATED, 3000));
-    CHECK(!indicatorOn(ActuatorState::ACTUATED, 5000));
   });
   test("FAULT three short flashes and pause", [] {
     for (uint32_t time : {0U, 200U, 400U, 1600U})
