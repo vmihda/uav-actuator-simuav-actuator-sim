@@ -19,12 +19,12 @@ def main():
     output = ROOT / ".pio" / "native"
     output.mkdir(parents=True, exist_ok=True)
     executable = output / "simulator"
-    subprocess.run(["rtk", "proxy", compiler, "-std=c++11", "-Wall", "-Wextra", "-Werror",
+    subprocess.run([compiler, "-std=c++11", "-Wall", "-Wextra", "-Werror",
                     "-DARMING_DELAY_MS=" + ("300000UL" if args.normal else "10000UL"),
                     "-I", str(ROOT / "include"), str(ROOT / "tools" / "simulator.cpp"),
                     str(ROOT / "src" / "fsm.cpp"), str(ROOT / "src" / "uart_protocol.cpp"),
                     "-o", str(executable)], cwd=ROOT, check=True)
-    subprocess.run(["rtk", "proxy", str(executable)], cwd=ROOT, check=True)
+    subprocess.run([str(executable)], cwd=ROOT, check=True)
 
 
 if __name__ == "__main__":

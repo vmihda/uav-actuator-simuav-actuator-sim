@@ -56,7 +56,7 @@ def main():
     if args.upload and (not args.port or not args.environment or len(args.environment) != 1):
         parser.error("upload requires --port and exactly one --environment")
     environments = args.environment or ["esp32dev", "esp32dev-test"]
-    command = ["rtk", "proxy", platformio_command(), "run"]
+    command = [platformio_command(), "run"]
     for name in environments:
         command += ["-e", name]
     environment = build_environment()
@@ -65,7 +65,7 @@ def main():
         subprocess.run(action, cwd=ROOT, env=environment, check=True)
     if args.firmware_only:
         return
-    filesystem = ["rtk", "proxy", platformio_command(), "run", "-e", environments[0],
+    filesystem = [platformio_command(), "run", "-e", environments[0],
                   "-t", "uploadfs" if args.upload else "buildfs"]
     if args.upload:
         filesystem += ["--upload-port", args.port]

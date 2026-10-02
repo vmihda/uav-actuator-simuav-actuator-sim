@@ -10,7 +10,7 @@ commands = "\n".join([
     "CMD:DEPLOY", "TICK:3000", "CMD:DEPLOY", "CMD:STOP", "bad", "CMD:STOP",
     "CMD:START", "TICK:30000", "CMD:STOP", ""
 ])
-result = subprocess.run(["rtk", "proxy", sys.executable, str(ROOT / "scripts" / "simulator.py")],
+result = subprocess.run([sys.executable, str(ROOT / "scripts" / "simulator.py")],
                         input=commands, text=True, capture_output=True, cwd=ROOT, check=True)
 states = [line for line in result.stdout.splitlines() if line.startswith("STATE:")]
 expected = [("SAFE", 0, 0), ("SAFE", 0, 0), ("ARMING", 10, 0), ("ARMING", 10, 0),

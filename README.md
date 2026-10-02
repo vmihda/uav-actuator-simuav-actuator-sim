@@ -26,7 +26,7 @@ Requires PlatformIO Core and its ESP32 toolchain. The build helper keeps writabl
 PlatformIO state inside `.pio` and reuses installed tools.
 
 ```sh
-rtk proxy python3 scripts/build_firmware.py
+python3 scripts/build_firmware.py
 ```
 
 This builds `esp32dev` (300-second arming interval), `esp32dev-test` (10 seconds)
@@ -36,7 +36,7 @@ First upload the firmware **and** filesystem to your ESP32. Replace the serial
 port with the one assigned to your board:
 
 ```sh
-rtk proxy python3 scripts/build_firmware.py --environment esp32dev-test --upload --port /dev/cu.usbserial-A5069RR4
+python3 scripts/build_firmware.py --environment esp32dev-test --upload --port /dev/cu.usbserial-A5069RR4
 ```
 
 The upload command also installs `data/info.txt` into LittleFS. It replaces the
@@ -44,7 +44,7 @@ filesystem contents; use it for first provisioning. Subsequent firmware-only
 uploads should preserve the event journal:
 
 ```sh
-rtk proxy python3 scripts/build_firmware.py --environment esp32dev-test --firmware-only --upload --port /dev/cu.usbserial-A5069RR4
+python3 scripts/build_firmware.py --environment esp32dev-test --firmware-only --upload --port /dev/cu.usbserial-A5069RR4
 ```
 
 Use `esp32dev` instead for the normal five-minute delay. Test firmware additionally
@@ -157,10 +157,10 @@ They cover FSM, timers/rollover, parser, UART, HTTP, indication, persistent even
 logging, full startup and fault recovery.
 
 ```sh
-rtk proxy python3 scripts/test_native.py
-rtk proxy python3 scripts/test_simulator.py
-rtk proxy node --test test/web/panel.test.cjs
-rtk proxy python3 scripts/simulator.py
+python3 scripts/test_native.py
+python3 scripts/test_simulator.py
+node --test test/web/panel.test.cjs
+python3 scripts/simulator.py
 ```
 
 The terminal simulator uses the real FSM/parser and a manual clock. Enter:
@@ -216,11 +216,11 @@ For these helpers, use the PlatformIO Python environment with pyserial and insta
 pymavlink into the project-local dependency directory:
 
 ```sh
-rtk proxy /Users/vmihda/.platformio/penv/bin/pip install --target .pio/python-deps pymavlink
-rtk proxy /Users/vmihda/.platformio/penv/bin/python scripts/inspect_fc.py
-rtk proxy /Users/vmihda/.platformio/penv/bin/python scripts/configure_fc.py --apply --reboot
-rtk proxy /Users/vmihda/.platformio/penv/bin/python scripts/hardware_smoke.py --via-fc --port /dev/cu.usbmodem2101
-rtk proxy /Users/vmihda/.platformio/penv/bin/python scripts/hardware_smoke.py --port /dev/cu.usbserial-A5069RR4
+~/.platformio/penv/bin/pip install --target .pio/python-deps pymavlink
+~/.platformio/penv/bin/python scripts/inspect_fc.py
+~/.platformio/penv/bin/python scripts/configure_fc.py --apply --reboot
+~/.platformio/penv/bin/python scripts/hardware_smoke.py --via-fc --port /dev/cu.usbmodem2101
+~/.platformio/penv/bin/python scripts/hardware_smoke.py --port /dev/cu.usbserial-A5069RR4
 ```
 
 The bench test exercises early deployment rejection, arming, activation,
