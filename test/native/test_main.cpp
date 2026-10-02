@@ -29,6 +29,8 @@ int cases = 0;
 void runFsmHeartbeatTests();
 void runSettingsTests();
 void runPwmDecoderTests();
+void runPowerMonitorTests();
+void runButtonMonitorTests();
 static ActuatorFsm* commandTarget = nullptr;
 bool dispatchTestCommand(Command command, uint32_t now) {
   return commandTarget->handle(command, now);
@@ -591,6 +593,8 @@ int main() {
   runFsmHeartbeatTests();
   runSettingsTests();
   runPwmDecoderTests();
+  runPowerMonitorTests();
+  runButtonMonitorTests();
   std::cout << cases - failures << '/' << cases << " cases passed\n";
   return failures == 0 ? 0 : 1;
 }
