@@ -66,7 +66,10 @@ available in ARMED. Failed status requests disable the command buttons.
 | `/deploy` | POST | ARMED → ACTUATED |
 
 Successful commands return HTTP 200; disallowed commands return HTTP 409 with
-current status and `accepted:false`. Wrong methods return HTTP 405. JSON example:
+current status and `accepted:false`. If the controller does not confirm a command
+within one second, the reply is HTTP 503 `{"error":"command_outcome_unknown"}`:
+the command may still have executed, so the panel locks its buttons until the
+next status refresh. Wrong methods return HTTP 405. JSON example:
 
 ```json
 {"state":"ARMING","time_left":10,"err":0,"pulse_active":false,"deployment_count":0,"accepted":true,"arming_seconds":10,"simulation":true}

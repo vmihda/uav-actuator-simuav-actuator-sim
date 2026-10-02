@@ -4,6 +4,10 @@
 
 using CommandHandler = bool (*)(Command command, uint32_t now);
 
+// Unavailable means the FSM did not answer in time: the command may still run.
+enum class CommandResult { Accepted, Rejected, Unavailable };
+using WebCommandHandler = CommandResult (*)(Command command, uint32_t now);
+
 struct HttpCommand {
   Command command;
   uint32_t issuedAt;

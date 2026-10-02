@@ -26,7 +26,7 @@ Indicators indicators;
 bool dispatchCommand(Command command, uint32_t now);
 UartHandler flightUart(Serial2, fsm, dispatchCommand);
 #ifdef ARDUINO
-bool dispatchWebCommand(Command command, uint32_t now);
+CommandResult dispatchWebCommand(Command command, uint32_t now);
 StatusSnapshot webStatus();
 ActuatorWebServer web(fsm, dispatchWebCommand, webStatus);
 QueueHandle_t httpCommands = nullptr;
@@ -34,7 +34,10 @@ TaskHandle_t httpTask = nullptr;
 portMUX_TYPE statusMux = portMUX_INITIALIZER_UNLOCKED;
 StatusSnapshot publishedStatus{ActuatorState::POST, ErrorCode::None, 0, false, 0};
 #else
-ActuatorWebServer web(fsm, dispatchCommand);
+CommandResult dispatchLocalWebCommand(Command command, uint32_t now) {
+  return dispatchCommand(command, now) ? CommandResult::Accepted : CommandResult::Rejected;
+}
+ActuatorWebServer web(fsm, dispatchLocalWebCommand);
 #endif
 #if ENABLE_USB_COMMANDS
 // The USB UART is initialized by setup; only the test build accepts commands.
@@ -68,20 +71,23 @@ void serveHttp(void*) {
   }
 }
 
-bool dispatchWebCommand(Command command, uint32_t now) {
+CommandResult dispatchWebCommand(Command command, uint32_t now) {
   // Only this one HTTP task produces requests. The main loop alone owns the FSM.
   static uint32_t nextId = 0;
   nextId = nextId % 0x7fffffffUL + 1;
   const HttpCommand request{command, now, nextId};
-  if (xQueueSend(httpCommands, &request, 0) != pdTRUE) return false;
+  // The main loop checks freshness with its own clock, so a request that times
+  // out here may still execute; report it as unconfirmed, never as rejected.
+  if (xQueueSend(httpCommands, &request, 0) != pdTRUE) return CommandResult::Unavailable;
   for (;;) {
     const uint32_t remaining = request.remainingMs(millis());
-    if (remaining == 0) return false;
+    if (remaining == 0) return CommandResult::Unavailable;
     uint32_t reply = 0;
     const TickType_t waitTicks = (remaining + portTICK_PERIOD_MS - 1) / portTICK_PERIOD_MS;
     if (xTaskNotifyWait(0, UINT32_MAX, &reply, waitTicks) != pdTRUE)
-      return false;
-    if ((reply >> 1) == request.id) return (reply & 1) != 0;
+      return CommandResult::Unavailable;
+    if ((reply >> 1) == request.id)
+      return (reply & 1) != 0 ? CommandResult::Accepted : CommandResult::Rejected;
   }
 }
 

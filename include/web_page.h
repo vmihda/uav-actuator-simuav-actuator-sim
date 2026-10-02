@@ -63,6 +63,15 @@ function render(data) {
     data.state === 'ACTUATED' ? 'Deployment latched. STOP returns to SAFE.' :
     'Connected. Preparation interval: ' + data.arming_seconds + ' seconds.';
 }
+function unavailable(state, message) {
+  current = null;
+  elements.state.textContent = state;
+  elements.state.dataset.state = '';
+  elements.timer.textContent = '-- s';
+  elements.pulse.textContent = '--';
+  elements.error.textContent = '--';
+  elements.message.textContent = message;
+}
 async function request(path, method = 'GET') {
   if (pending) return;
   pending = true;
@@ -71,16 +80,14 @@ async function request(path, method = 'GET') {
   const deadline = setTimeout(() => controller.abort(), 2000);
   try {
     const response = await fetch(path, {method,cache:'no-store',signal:controller.signal});
+    if (response.status === 503) {
+      unavailable('UNKNOWN', 'Controller busy: command outcome unknown. Refreshing status...');
+      return;
+    }
     if (!response.ok && response.status !== 409) throw new Error('HTTP ' + response.status);
     render(await response.json());
   } catch (error) {
-    current = null;
-    elements.state.textContent = 'DISCONNECTED';
-    elements.state.dataset.state = '';
-    elements.timer.textContent = '-- s';
-    elements.pulse.textContent = '--';
-    elements.error.textContent = '--';
-    elements.message.textContent = 'Connection lost. Reconnecting...';
+    unavailable('DISCONNECTED', 'Connection lost. Reconnecting...');
   } finally {
     clearTimeout(deadline);
     pending = false;

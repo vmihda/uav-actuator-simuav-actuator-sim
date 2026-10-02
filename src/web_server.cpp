@@ -57,6 +57,13 @@ void ActuatorWebServer::sendStatus(int code, bool accepted) {
 }
 
 void ActuatorWebServer::runCommand(Command command) {
-  const bool accepted = handler_(command, millis());
+  const CommandResult result = handler_(command, millis());
+  if (result == CommandResult::Unavailable) {
+    // A late reply is not a rejection: the controller may still execute it.
+    server_.sendHeader("Cache-Control", "no-store");
+    server_.send(503, "application/json", "{\"error\":\"command_outcome_unknown\"}");
+    return;
+  }
+  const bool accepted = result == CommandResult::Accepted;
   sendStatus(accepted ? 200 : 409, accepted);
 }

@@ -6,7 +6,7 @@
 class ActuatorWebServer {
  public:
   using StatusProvider = StatusSnapshot (*)();
-  ActuatorWebServer(ActuatorFsm& fsm, CommandHandler handler, StatusProvider status = nullptr)
+  ActuatorWebServer(ActuatorFsm& fsm, WebCommandHandler handler, StatusProvider status = nullptr)
       : fsm_(fsm), handler_(handler), status_(status), server_(80) {}
   bool begin();
   void update();
@@ -14,7 +14,7 @@ class ActuatorWebServer {
   void sendStatus(int code, bool accepted);
   void runCommand(Command command);
   ActuatorFsm& fsm_;
-  CommandHandler handler_;
+  WebCommandHandler handler_;
   StatusProvider status_;
   WebServer server_;
   bool started_ = false;

@@ -32,6 +32,10 @@ static ActuatorFsm* commandTarget = nullptr;
 bool dispatchTestCommand(Command command, uint32_t now) {
   return commandTarget->handle(command, now);
 }
+CommandResult dispatchTestWebCommand(Command command, uint32_t now) {
+  return commandTarget->handle(command, now) ? CommandResult::Accepted : CommandResult::Rejected;
+}
+CommandResult unavailableWebCommand(Command, uint32_t) { return CommandResult::Unavailable; }
 template <typename Test>
 void test(const char* name, Test body) {
   ++cases;
@@ -357,7 +361,7 @@ int main() {
   test("SoftAP starts with required credentials and serves panel", [] {
     ActuatorFsm fsm;
     commandTarget = &fsm;
-    ActuatorWebServer web(fsm, dispatchTestCommand);
+    ActuatorWebServer web(fsm, dispatchTestWebCommand);
     CHECK(web.begin());
     CHECK(std::strcmp(WiFi.ssid, "ACTUATOR-SIM") == 0);
     CHECK(std::strcmp(WiFi.key, "password123") == 0);
@@ -368,7 +372,7 @@ int main() {
   test("SoftAP initialization failure is reported to POST", [] {
     ActuatorFsm fsm;
     WiFi.ready = false;
-    ActuatorWebServer web(fsm, dispatchTestCommand);
+    ActuatorWebServer web(fsm, dispatchTestWebCommand);
     CHECK(!web.begin());
     WiFi.ready = true;
   });
@@ -377,7 +381,7 @@ int main() {
     commandTarget = &fsm;
     fsm.completePost(true, 0);
     fakeNow = 0;
-    ActuatorWebServer web(fsm, dispatchTestCommand);
+    ActuatorWebServer web(fsm, dispatchTestWebCommand);
     CHECK(web.begin());
     auto& http = *WebServer::latest;
     http.request("/deploy", HTTP_POST);
@@ -407,7 +411,7 @@ int main() {
     commandTarget = &fsm;
     fsm.completePost(true, 0);
     fakeNow = 0;
-    ActuatorWebServer web(fsm, dispatchTestCommand);
+    ActuatorWebServer web(fsm, dispatchTestWebCommand);
     CHECK(web.begin());
     for (const char* path : {"/start", "/stop", "/deploy"}) {
       WebServer::latest->request(path, HTTP_GET);
@@ -415,10 +419,25 @@ int main() {
       CHECK(fsm.state() == ActuatorState::SAFE);
     }
   });
+  test("HTTP command with unknown outcome returns 503, never a 409 rejection", [] {
+    ActuatorFsm fsm;
+    fsm.completePost(true, 0);
+    ActuatorWebServer web(fsm, unavailableWebCommand);
+    CHECK(web.begin());
+    auto& http = *WebServer::latest;
+    for (const char* path : {"/start", "/stop", "/deploy"}) {
+      http.request(path, HTTP_POST);
+      CHECK(http.statusCode == 503);
+      CHECK(http.response.find("\"error\":\"command_outcome_unknown\"") != std::string::npos);
+      CHECK(http.response.find("\"accepted\"") == std::string::npos);
+    }
+    http.request("/status", HTTP_GET);
+    CHECK(http.statusCode == 200);
+  });
   test("repeated web start registers routes and SoftAP only once", [] {
     ActuatorFsm fsm;
     commandTarget = &fsm;
-    ActuatorWebServer web(fsm, dispatchTestCommand);
+    ActuatorWebServer web(fsm, dispatchTestWebCommand);
     const int softApCalls = WiFi.softApCalls;
     CHECK(web.begin());
     const int registrations = WebServer::latest->registrations;
@@ -428,7 +447,7 @@ int main() {
   });
   test("web start retries SoftAP after an initial failure", [] {
     ActuatorFsm fsm;
-    ActuatorWebServer web(fsm, dispatchTestCommand);
+    ActuatorWebServer web(fsm, dispatchTestWebCommand);
     WiFi.ready = false;
     CHECK(!web.begin());
     WiFi.ready = true;

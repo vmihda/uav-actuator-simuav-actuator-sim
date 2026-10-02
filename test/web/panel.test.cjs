@@ -15,6 +15,7 @@ function fixture() {
   const calls = [];
   let next = {state:'SAFE', time_left:0, err:0, pulse_active:false, accepted:true, arming_seconds:10};
   let fail = false;
+  let busy = false;
   let poll;
   vm.runInNewContext(script, {
     document:{getElementById:id => elements[id]}, AbortController,
@@ -22,11 +23,13 @@ function fixture() {
     fetch:async (url, options) => {
       calls.push({url, method:options.method});
       if (fail) throw new Error('offline');
+      if (busy) return {ok:false, status:503, json:async()=>({error:'command_outcome_unknown'})};
       return {ok:true, status:200, json:async()=>next};
     }
   });
   return {elements,calls,poll:()=>poll(),
     status(value) { next = {...next,...value}; }, offline() { fail = true; },
+    busy(value) { busy = value; },
     click(id) { if (!elements[id].disabled) elements[id].callbacks.click(); }};
 }
 
@@ -65,4 +68,17 @@ test('FAULT allows STOP recovery and shows the error', async () => {
   ui.status({state:'SAFE',err:0}); ui.click('stop'); await settle();
   assert.deepEqual(ui.calls.at(-1), {url:'/stop',method:'POST'});
   assert.equal(ui.elements.start.disabled, false);
+});
+
+test('unconfirmed command reports unknown outcome and locks controls until refreshed', async () => {
+  const ui = fixture(); await settle();
+  ui.status({state:'ARMED',time_left:0}); ui.poll(); await settle();
+  ui.busy(true); ui.click('deploy'); await settle();
+  assert.deepEqual(ui.calls.at(-1), {url:'/deploy',method:'POST'});
+  assert.equal(ui.elements.state.textContent, 'UNKNOWN');
+  assert.match(ui.elements.message.textContent, /outcome unknown/);
+  for (const action of ['start','stop','deploy']) assert.equal(ui.elements[action].disabled, true);
+  ui.busy(false); ui.status({state:'ACTUATED',pulse_active:true}); ui.poll(); await settle();
+  assert.equal(ui.elements.state.textContent, 'ACTUATED');
+  assert.equal(ui.elements.stop.disabled, false);
 });
