@@ -51,9 +51,16 @@ def main():
             print(f"{name}: {previous:g} -> {value:g}", flush=True)
         if not args.apply:
             return
-        snapshot = ROOT / ".pio" / "fc-parameters-before.json"
+        # Kept outside .pio: build-artifact directories are routinely deleted.
+        snapshot = ROOT / "backups" / "fc-parameters-before.json"
         if not snapshot.exists():
-            snapshot.write_text(json.dumps({"port": args.port, "parameters": current}, indent=2) + "\n")
+            if all(current[name]["value"] == value for name, value in desired.items()):
+                # Values already applied are not the originals; never record them as such.
+                print(f"No snapshot written: {snapshot} is missing and the flight controller "
+                      "already has the simulator configuration", flush=True)
+            else:
+                snapshot.parent.mkdir(exist_ok=True)
+                snapshot.write_text(json.dumps({"port": args.port, "parameters": current}, indent=2) + "\n")
         for name, value in desired.items():
             if current[name]["value"] != value:
                 set_parameter(connection, name, value, current[name]["type"])

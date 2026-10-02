@@ -204,7 +204,8 @@ Protocol `0` initializes the raw UART without creating a GPS or MAVLink driver.
 In this firmware, `-1` disables the RX/TX pins, so it cannot be used for raw
 forwarding after reboot ([4.7.1 SerialManager source](https://raw.githubusercontent.com/ArduPilot/ardupilot/Copter-4.7.1/libraries/AP_SerialManager/AP_SerialManager.cpp)).
 Protocol and GPS changes require a reboot. The original parameter values are
-preserved in `.pio/fc-parameters-before.json`.
+preserved in `backups/fc-parameters-before.json`, outside the disposable `.pio`
+directory; the previous ESP32 flash image is `backups/esp32-before-simulator.bin`.
 
 The supplied helper uses MAVLink `SERIAL_CONTROL` device `106` to send the exact
 ASCII commands from the laptop through ArduPilot and UART6. This is a manual

@@ -1,0 +1,25 @@
+{
+  "port": "/dev/cu.usbmodem2101",
+  "parameters": {
+    "SERIAL6_PROTOCOL": {
+      "value": 5.0,
+      "type": 2
+    },
+    "SERIAL6_BAUD": {
+      "value": 115.0,
+      "type": 6
+    },
+    "SERIAL6_OPTIONS": {
+      "value": 0.0,
+      "type": 6
+    },
+    "GPS1_TYPE": {
+      "value": 5.0,
+      "type": 2
+    },
+    "GPS2_TYPE": {
+      "value": 0.0,
+      "type": 2
+    }
+  }
+}

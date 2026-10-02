@@ -8,3 +8,5 @@ __pycache__/
 .vscode/c_cpp_properties.json
 .vscode/launch.json
 .vscode/ipch
+# Local hardware restore points; a flash dump may contain device secrets.
+backups/*.bin

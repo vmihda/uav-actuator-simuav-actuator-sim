@@ -36,10 +36,10 @@ has no actuator power GPIO.
 
 ## Preserved state
 
-- Previous ESP32 flash: `.pio/esp32-before-simulator.bin`, 4,194,304 bytes.
+- Previous ESP32 flash: `backups/esp32-before-simulator.bin`, 4,194,304 bytes.
 - Backup SHA256:
   `f010a52a55a34c29cc34c396c393d4abd4fec18671c5769102360004f6306046`.
-- Original FC parameters: `.pio/fc-parameters-before.json`.
+- Original FC parameters: `backups/fc-parameters-before.json`.
 
 ## Compiled resources
 
