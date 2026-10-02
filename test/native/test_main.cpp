@@ -415,6 +415,27 @@ int main() {
       CHECK(fsm.state() == ActuatorState::SAFE);
     }
   });
+  test("repeated web start registers routes and SoftAP only once", [] {
+    ActuatorFsm fsm;
+    commandTarget = &fsm;
+    ActuatorWebServer web(fsm, dispatchTestCommand);
+    const int softApCalls = WiFi.softApCalls;
+    CHECK(web.begin());
+    const int registrations = WebServer::latest->registrations;
+    CHECK(web.begin());
+    CHECK(WebServer::latest->registrations == registrations);
+    CHECK(WiFi.softApCalls == softApCalls + 1);
+  });
+  test("web start retries SoftAP after an initial failure", [] {
+    ActuatorFsm fsm;
+    ActuatorWebServer web(fsm, dispatchTestCommand);
+    WiFi.ready = false;
+    CHECK(!web.begin());
+    WiFi.ready = true;
+    CHECK(web.begin());
+    WebServer::latest->request("/", HTTP_GET);
+    CHECK(WebServer::latest->statusCode == 200);
+  });
   test("indication changes immediately on STOP and FAULT", [] {
     ActuatorFsm fsm(10);
     fsm.completePost(true, 0);

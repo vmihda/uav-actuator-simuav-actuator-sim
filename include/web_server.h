@@ -17,4 +17,5 @@ class ActuatorWebServer {
   CommandHandler handler_;
   StatusProvider status_;
   WebServer server_;
+  bool started_ = false;
 };

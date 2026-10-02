@@ -11,6 +11,7 @@ class WebServer {
   explicit WebServer(int) { latest = this; }
   void on(const char* path, HTTPMethod method, std::function<void()> handler) {
     routes[{path, method}] = handler;
+    ++registrations;
   }
   void onNotFound(std::function<void()> handler) { notFound = handler; }
   void begin() { started = true; latest = this; }
@@ -29,6 +30,7 @@ class WebServer {
   static WebServer* latest;
   bool started = false;
   int statusCode = 0;
+  int registrations = 0;
   std::string response;
  private:
   std::map<std::pair<std::string, HTTPMethod>, std::function<void()>> routes;

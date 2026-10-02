@@ -5,6 +5,8 @@
 #include "web_page.h"
 
 bool ActuatorWebServer::begin() {
+  // Retries after a later startup step fails must not register routes twice.
+  if (started_) return true;
   if (!WiFi.mode(WIFI_AP) || !WiFi.softAP(config::kApSsid, config::kApPassword))
     return false;
   server_.on("/", HTTP_GET, [this] {
@@ -28,6 +30,7 @@ bool ActuatorWebServer::begin() {
     }
   });
   server_.begin();
+  started_ = true;
   return true;
 }
 
