@@ -17,6 +17,7 @@ def main():
     executable = output / "contract-tests"
     sources = ["test/native/test_main.cpp", "test/native/test_fsm_heartbeat.cpp",
                "test/native/test_settings.cpp", "src/settings.cpp", "src/settings_file.cpp",
+               "test/native/test_pwm_decoder.cpp", "src/pwm_decoder.cpp",
                "src/fsm.cpp", "src/uart_protocol.cpp",
                "src/indicator_pattern.cpp", "src/uart_handler.cpp",
                "src/web_server.cpp", "src/indicators.cpp", "src/event_log.cpp",
