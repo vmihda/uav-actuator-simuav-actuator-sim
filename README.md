@@ -1,0 +1,234 @@
+# ESP32 Actuator Simulator
+
+PlatformIO/Arduino implementation of the supplied UART + Wi-Fi recovery-controller
+simulation. **There is no actuator power GPIO.** Deployment changes a logical
+flag and drives the indication pattern for three seconds.
+
+## Connections
+
+| ESP32 | Flight-controller UART6 |
+| --- | --- |
+| GPIO16 / RX2 | T6 / TX |
+| GPIO17 / TX2 | R6 / RX |
+| GND | GND |
+
+UART2 uses 115200 baud, 8N1 and 3.3V logic. USB is UART0 and remains available for
+diagnostics. GPIO2 drives an active-high LED. An optional **active** buzzer can
+mirror the LED using `-DBUZZER_PIN=<unused GPIO>`; it is disabled by default.
+
+The flight controller must send the specified ASCII commands. Merely enabling
+MSP, MAVLink or another binary protocol on UART6 does not generate these commands.
+Binary/unknown input is deliberately treated as invalid input by this simulator.
+
+## Build and upload
+
+Requires PlatformIO Core and its ESP32 toolchain. The build helper keeps writable
+PlatformIO state inside `.pio` and reuses installed tools.
+
+```sh
+rtk proxy python3 scripts/build_firmware.py
+```
+
+This builds `esp32dev` (300-second arming interval), `esp32dev-test` (10 seconds)
+and a LittleFS image. Compiler warnings are treated as errors.
+
+First upload the firmware **and** filesystem to your ESP32. Replace the serial
+port with the one assigned to your board:
+
+```sh
+rtk proxy python3 scripts/build_firmware.py --environment esp32dev-test --upload --port /dev/cu.usbserial-A5069RR4
+```
+
+The upload command also installs `data/info.txt` into LittleFS. It replaces the
+filesystem contents; use it for first provisioning. Subsequent firmware-only
+uploads should preserve the event journal:
+
+```sh
+rtk proxy python3 scripts/build_firmware.py --environment esp32dev-test --firmware-only --upload --port /dev/cu.usbserial-A5069RR4
+```
+
+Use `esp32dev` instead for the normal five-minute delay. Test firmware additionally
+accepts the UART command strings through USB for bench verification. Normal
+firmware accepts commands through UART2 and HTTP; USB reports status only.
+
+## Wi-Fi panel and API
+
+Connect to **ACTUATOR-SIM**, password **password123**, and open
+**http://192.168.4.1**. The panel refreshes once per second. Deploy becomes
+available in ARMED. Failed status requests disable the command buttons.
+
+| Endpoint | Method | Action |
+| --- | --- | --- |
+| `/` | GET | Manual test panel |
+| `/status` | GET | Status and control heartbeat |
+| `/start` | POST | SAFE → ARMING |
+| `/stop` | POST | Disarm, cancel pulse or retry fault recovery |
+| `/deploy` | POST | ARMED → ACTUATED |
+
+Successful commands return HTTP 200; disallowed commands return HTTP 409 with
+current status and `accepted:false`. Wrong methods return HTTP 405. JSON example:
+
+```json
+{"state":"ARMING","time_left":10,"err":0,"pulse_active":false,"deployment_count":0,"accepted":true,"arming_seconds":10,"simulation":true}
+```
+
+`deployment_count` counts successful deployments during the current boot.
+
+## UART protocol and states
+
+Send LF-terminated commands (CRLF also works):
+
+```text
+CMD:START
+CMD:STOP
+CMD:DEPLOY
+CMD:STATUS
+```
+
+UART2 sends telemetry every second and immediately for STATUS:
+
+```text
+STATE:ARMING,TIME_LEFT:9,ERR:0
+```
+
+The parser accepts at most 63 bytes before LF. It waits for complete lines,
+rejects unknown commands/control bytes, and discards an oversized line through
+its terminating LF. Blank lines are ignored. Each loop processes at most 128
+received bytes so a continuous stream cannot monopolize the application.
+
+- **POST:** validates LittleFS marker/read/write, UART, AP and watchdog. The
+  simulated output starts off. A failed check enters FAULT.
+- **SAFE:** output off. START begins a fresh arming interval.
+- **ARMING:** early DEPLOY is rejected without resetting the countdown. Repeated
+  START is rejected. STOP returns to SAFE.
+- **ARMED:** DEPLOY is accepted once; STOP disarms.
+- **ACTUATED:** logical output on for 3 seconds, then off. The state remains
+  latched until STOP. Repeated DEPLOY cannot restart the pulse.
+- **FAULT:** output off. STOP reruns health checks and clears the fault only if
+  they pass. Unknown commands, UART overflow and control timeout enter FAULT.
+
+While ARMING/ARMED, send a valid command or STATUS **more often than every 30
+seconds**. HTTP status polling also supplies this heartbeat, so keep the panel
+open when using Wi-Fi. Outgoing telemetry does not count as incoming control.
+An expired deadline is evaluated before a late command; late DEPLOY cannot
+prevent a timeout. SAFE and latched ACTUATED do not require a heartbeat.
+
+## Errors, event journal and indication
+
+| ERR | Meaning |
+| --- | --- |
+| 0 | None |
+| 1 | Peripheral/watchdog/self-test failure |
+| 2 | Invalid command |
+| 3 | Control timeout |
+| 4 | UART line overflow |
+| 5 | LittleFS or deployment-journal failure |
+
+LittleFS is mounted with automatic formatting disabled. An unprovisioned or
+damaged filesystem causes FAULT rather than erasing data. Events are appended
+**before** beginning a deployment pulse:
+
+```text
+UPTIME_MS:10000,STATE:ACTUATED,COUNT:1
+```
+
+`/events.log` rotates at 4096 bytes to `/events.previous.log`. The journal survives
+reset and STOP; timestamps and counters are relative to each boot. A failed
+write blocks the pulse and causes error 5.
+
+Indication is driven by timestamps without `delay()`: SAFE 0.5Hz, ARMING 2Hz,
+ARMED 5Hz, ACTUATED continuously on for 3 seconds, FAULT three 100ms flashes with
+a pause. A five-second ESP32 task watchdog monitors the main loop.
+
+The HTTP server runs on a separate FreeRTOS task on core 0 at idle priority;
+FreeRTOS time slicing keeps the idle watchdog serviced even if the vendor HTTP
+parser waits for a slow request. The main loop alone owns the FSM and continues
+servicing UART/timers/indication. HTTP commands pass through a one-slot queue
+with a one-second deadline; replies use a protected immutable status snapshot.
+
+## Tests and terminal simulation
+
+Host contract tests compile the actual firmware sources with deterministic
+hardware adapters, AddressSanitizer/UndefinedBehaviorSanitizer and strict warnings.
+They cover FSM, timers/rollover, parser, UART, HTTP, indication, persistent event
+logging, full startup and fault recovery.
+
+```sh
+rtk proxy python3 scripts/test_native.py
+rtk proxy python3 scripts/test_simulator.py
+rtk proxy node --test test/web/panel.test.cjs
+rtk proxy python3 scripts/simulator.py
+```
+
+The terminal simulator uses the real FSM/parser and a manual clock. Enter:
+
+```text
+CMD:DEPLOY
+CMD:START
+CMD:DEPLOY
+TICK:10000
+CMD:DEPLOY
+TICK:3000
+CMD:STOP
+FAULT
+CMD:STOP
+```
+
+`TICK:<ms>` advances simulated time without waiting. `FAULT` injects a recoverable
+error. Pass `--normal` to use 300 seconds; advance in increments below 30 seconds
+and send STATUS between them to maintain the control heartbeat.
+
+Typical compiled resource usage: about 45KB static RAM and 830KB application
+flash (PlatformIO reports exact values for each build). The HTML lives in flash,
+protocol/status buffers have fixed capacities, and status polling does not write
+to flash.
+
+## SpeedyBee F405 V3 / ArduPilot bench connection
+
+The connected board was identified as ArduPilot 4.7.1. On this exact board,
+R6/T6 are `SERIAL6` ([official board documentation](https://ardupilot.org/copter/docs/common-speedybeef4-v3.html)).
+The requested GPS-free UART configuration is:
+
+| Parameter | Value |
+| --- | --- |
+| `SERIAL6_PROTOCOL` | `0` |
+| `SERIAL6_BAUD` | `115` (115200 baud) |
+| `SERIAL6_OPTIONS` | `0` |
+| `GPS1_TYPE` | `0` |
+| `GPS2_TYPE` | `0` |
+
+Protocol `0` initializes the raw UART without creating a GPS or MAVLink driver.
+In this firmware, `-1` disables the RX/TX pins, so it cannot be used for raw
+forwarding after reboot ([4.7.1 SerialManager source](https://raw.githubusercontent.com/ArduPilot/ardupilot/Copter-4.7.1/libraries/AP_SerialManager/AP_SerialManager.cpp)).
+Protocol and GPS changes require a reboot. The original parameter values are
+preserved in `.pio/fc-parameters-before.json`.
+
+The supplied helper uses MAVLink `SERIAL_CONTROL` device `106` to send the exact
+ASCII commands from the laptop through ArduPilot and UART6. This is a manual
+bench-control path; it does not enable automatic aircraft recovery behavior.
+SpeedyBee F405 V3 firmware has no onboard Lua scripting
+([firmware feature manifest](https://firmware.ardupilot.org/Copter/stable/speedybeef4v3/features.txt)).
+
+For these helpers, use the PlatformIO Python environment with pyserial and install
+pymavlink into the project-local dependency directory:
+
+```sh
+rtk proxy /Users/vmihda/.platformio/penv/bin/pip install --target .pio/python-deps pymavlink
+rtk proxy /Users/vmihda/.platformio/penv/bin/python scripts/inspect_fc.py
+rtk proxy /Users/vmihda/.platformio/penv/bin/python scripts/configure_fc.py --apply --reboot
+rtk proxy /Users/vmihda/.platformio/penv/bin/python scripts/hardware_smoke.py --via-fc --port /dev/cu.usbmodem2101
+rtk proxy /Users/vmihda/.platformio/penv/bin/python scripts/hardware_smoke.py --port /dev/cu.usbserial-A5069RR4
+```
+
+The bench test exercises early deployment rejection, arming, activation,
+invalid input and STOP recovery, then leaves the simulator SAFE. Runtime
+exclusive UART access is released afterward. Configuration/testing helpers
+refuse to run the bench operation while the flight controller is armed.
+
+## Modules
+
+`fsm` owns transitions and deadlines; `uart_protocol` owns framing/serialization;
+`uart_handler` connects UART2; `web_server` serves the panel/API; `indicator_pattern`
+and `indicators` implement patterns/GPIO; `event_log` validates/persists LittleFS;
+`main` performs startup checks and shares command dispatch between both channels.
+Hardware/timing constants are in `include/config.h`.
