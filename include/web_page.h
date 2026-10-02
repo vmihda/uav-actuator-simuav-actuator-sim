@@ -39,7 +39,8 @@ Status refreshes every second. The actuator pulse is simulated; this firmware ha
 <script>
 'use strict';
 const elements = Object.fromEntries(['state','timer','pulse','error','start','stop','deploy','message'].map(id => [id,document.getElementById(id)]));
-const errors = ['None','Self-test failed','Invalid command','Control timeout','UART line overflow','Storage failure'];
+const errors = ['None','Self-test failed','Invalid command','Control timeout','UART line overflow','Storage failure',
+  'Settings invalid','Button stuck','PWM signal invalid','PWM signal lost','Supply voltage out of range','Sensor failure'];
 let current = null;
 let commandPending = false;
 let inFlight = 0;

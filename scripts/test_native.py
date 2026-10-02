@@ -21,6 +21,7 @@ def main():
                "test/native/test_power_monitor.cpp", "src/power_monitor.cpp",
                "test/native/test_button_monitor.cpp", "src/button_monitor.cpp",
                "test/native/test_self_test.cpp", "src/self_test.cpp",
+               "test/native/test_sim_vin.cpp",
                "src/fsm.cpp", "src/uart_protocol.cpp",
                "src/indicator_pattern.cpp", "src/uart_handler.cpp",
                "src/web_server.cpp", "src/indicators.cpp", "src/event_log.cpp",

@@ -1,4 +1,5 @@
 #include "uart_handler.h"
+#include <cstdio>
 #include <cstring>
 
 bool UartHandler::begin() {
@@ -24,6 +25,16 @@ void UartHandler::update(uint32_t now) {
       case ParseKind::Overflow:
         fsm_.fault(ErrorCode::UartOverflow, now);
         break;
+      case ParseKind::SimulateVin: {
+        const bool accepted = simulation_ != nullptr && simulation_(result.value);
+        char reply[40];
+        std::snprintf(reply, sizeof(reply), "SIM:VIN:%ld:%s\n", static_cast<long>(result.value),
+                      accepted ? "OK" : "REJECTED");
+        const std::size_t length = std::strlen(reply);
+        if (port_.availableForWrite() >= static_cast<int>(length))
+          port_.write(reinterpret_cast<const uint8_t*>(reply), length);
+        break;
+      }
       case ParseKind::None:
         break;
     }

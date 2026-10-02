@@ -32,6 +32,7 @@ void runPwmDecoderTests();
 void runPowerMonitorTests();
 void runButtonMonitorTests();
 void runSelfTestTests();
+void runSimVinTests();
 static ActuatorFsm* commandTarget = nullptr;
 bool dispatchTestCommand(Command command, uint32_t now) {
   return commandTarget->handle(command, now);
@@ -42,7 +43,7 @@ CommandResult dispatchTestWebCommand(Command command, uint32_t now) {
 CommandResult unavailableWebCommand(Command, uint32_t) { return CommandResult::Unavailable; }
 
 ParseResult feed(UartLineParser& parser, const std::string& line) {
-  ParseResult result{ParseKind::None, Command::Invalid};
+  ParseResult result{ParseKind::None, Command::Invalid, 0};
   for (char byte : line) {
     const auto next = parser.feed(byte);
     if (next.kind != ParseKind::None) result = next;
@@ -597,6 +598,7 @@ int main() {
   runPowerMonitorTests();
   runButtonMonitorTests();
   runSelfTestTests();
+  runSimVinTests();
   std::cout << cases - failures << '/' << cases << " cases passed\n";
   return failures == 0 ? 0 : 1;
 }
