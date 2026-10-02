@@ -10,11 +10,19 @@ flag and drives the indication pattern for three seconds.
 | --- | --- |
 | GPIO16 / RX2 | T6 / TX |
 | GPIO17 / TX2 | R6 / RX |
+| GPIO27 (PWM input) | M1 |
 | GND | GND |
+
+M1 is the third contact of the 8-pin ESC connector counting from `G`
+(`G V 1 2 3 4 C T`). Never connect `V` (battery). Run the flight controller from
+USB only, without a battery. M1 carries 50 Hz, 3.3V PWM.
 
 UART2 uses 115200 baud, 8N1 and 3.3V logic. USB is UART0 and remains available for
 diagnostics. GPIO2 drives an active-high LED. An optional **active** buzzer can
 mirror the LED using `-DBUZZER_PIN=<unused GPIO>`; it is disabled by default.
+
+The on-board BOOT button (GPIO0) is a local STOP. A button held from power-on
+keeps the ESP32 in its ROM bootloader, so the application never starts.
 
 The flight controller must send the specified ASCII commands. Merely enabling
 MSP, MAVLink or another binary protocol on UART6 does not generate these commands.
@@ -39,8 +47,9 @@ port with the one assigned to your board:
 python3 scripts/build_firmware.py --environment esp32dev-test --upload --port /dev/cu.usbserial-A5069RR4
 ```
 
-The upload command also installs `data/info.txt` into LittleFS. It replaces the
-filesystem contents; use it for first provisioning. Subsequent firmware-only
+The upload command also installs `data/info.txt` and `data/settings.json` into
+LittleFS. It replaces the filesystem contents, including the event journal; use it
+for first provisioning and whenever the settings change. Subsequent firmware-only
 uploads should preserve the event journal:
 
 ```sh
@@ -99,8 +108,8 @@ rejects unknown commands/control bytes, and discards an oversized line through
 its terminating LF. Blank lines are ignored. Each loop processes at most 128
 received bytes so a continuous stream cannot monopolize the application.
 
-- **POST:** validates LittleFS marker/read/write, UART, AP and watchdog. The
-  simulated output starts off. A failed check enters FAULT.
+- **POST:** runs the self-test below. The simulated output starts off. A failed
+  check enters FAULT.
 - **SAFE:** output off. START begins a fresh arming interval.
 - **ARMING:** early DEPLOY is rejected without resetting the countdown. Repeated
   START is rejected. STOP returns to SAFE.
@@ -111,10 +120,67 @@ received bytes so a continuous stream cannot monopolize the application.
   they pass. Unknown commands, UART overflow and control timeout enter FAULT.
 
 While ARMING/ARMED, send a valid command or STATUS **more often than every 30
-seconds**. HTTP status polling also supplies this heartbeat, so keep the panel
-open when using Wi-Fi. Outgoing telemetry does not count as incoming control.
+seconds**. HTTP status polling and a captured, neutral PWM signal also supply
+this heartbeat, so keep the panel open when using Wi-Fi only. Outgoing telemetry does not count as incoming control.
 An expired deadline is evaluated before a late command; late DEPLOY cannot
 prevent a timeout. SAFE and latched ACTUATED do not require a heartbeat.
+
+## PWM commands
+
+GPIO27 measures every pulse. Default bands (inclusive, from `settings.json`):
+
+| Width | Meaning |
+| --- | --- |
+| below 800 µs or above 2200 µs | invalid |
+| 900–1300 µs | STOP |
+| 1400–1600 µs | START |
+| 1700–2100 µs | DEPLOY |
+| anything between | dead zone |
+
+- A command fires once when the width stays in its band for 200 ms; it repeats
+  only after another command band. Dead zones never repeat a command.
+- 200 ms of valid pulses capture the signal. The band present at capture is a
+  starting position and commands nothing.
+- START and DEPLOY need *neutral*: the width must have passed through STOP.
+  When the FSM faults, neutral is kept only if PWM is at STOP.
+- A DEPLOY sent too early (ARMING) is rejected and consumed; it does not fire
+  later when ARMED.
+- No pulse, or only invalid widths, for 500 ms releases the capture. In
+  ARMING/ARMED this enters FAULT `PwmLost` or `PwmInvalid`.
+
+## Settings
+
+`data/settings.json` is installed into LittleFS and validated strictly at boot:
+every field is required, unknown keys and wrong JSON types are rejected, PWM bands
+must be ordered with non-empty dead zones, and pins must not collide with UART2,
+the LED or each other. `pins.button` may be `-1` to disable the button. A missing
+or invalid file enters FAULT `SettingsInvalid`; the USB log names the field, for
+example `POST:SETTINGS:FAIL:pwm.start.min_us must exceed pwm.stop.max_us`.
+Settings are read once at boot.
+
+## Self-test and supply monitoring
+
+Boot logs one USB line per check: `POST:<CHECK>:OK`, `FAIL:<detail>` or
+`SKIPPED`, after `DEVICE:MAC=…,CHIP=…,REV=…,FLASH_MB=…`.
+
+| Check | Verifies | Fault |
+| --- | --- | --- |
+| `FS` | LittleFS marker, write/read probe, journal paths | 5 |
+| `SETTINGS` | `/settings.json` | 6 |
+| `CHIP` | Factory MAC (eFuse CRC), ESP32 model, flash ≥ 4 MB | 1 |
+| `HEAP` | At least 64 KiB free | 1 |
+| `BUTTON` | Not held for 500 ms during the boot window | 7 |
+| `POWER` | Supply verdict | 10 or 11 |
+| `PWM` | Edge interrupt registered (no signal is not an error) | 1 |
+| `LINKS` | UART2, SoftAP and watchdog | 1 |
+
+STOP in FAULT reruns these checks, except `CHIP` and settings parsing.
+
+The supply voltage is read through a sensor interface. It is **simulated** until
+a VIN divider is fitted: valid range 4.5–5.5 V, default 5.0 V. Outside the range
+for one second enters FAULT `PowerOutOfRange`; unreadable values enter
+`SensorFailure`. The test firmware accepts `SIM:VIN:<mV>` over USB
+(0–30000) and replies `SIM:VIN:<mV>:OK`.
 
 ## Errors, event journal and indication
 
@@ -126,6 +192,12 @@ prevent a timeout. SAFE and latched ACTUATED do not require a heartbeat.
 | 3 | Control timeout |
 | 4 | UART line overflow |
 | 5 | LittleFS or deployment-journal failure |
+| 6 | Settings missing or invalid |
+| 7 | Button stuck |
+| 8 | PWM signal invalid |
+| 9 | PWM signal lost |
+| 10 | Supply voltage out of range |
+| 11 | Sensor failure |
 
 LittleFS is mounted with automatic formatting disabled. An unprovisioned or
 damaged filesystem causes FAULT rather than erasing data. Events are appended
@@ -229,10 +301,23 @@ invalid input and STOP recovery, then leaves the simulator SAFE. Runtime
 exclusive UART access is released afterward. Configuration/testing helpers
 refuse to run the bench operation while the flight controller is armed.
 
+The PWM bench drives M1 with `DO_SET_SERVO` and only reads ESP32 telemetry, so
+the 35-second ARMED hold proves the PWM heartbeat. It covers neutral, arming,
+deployment, STOP and a consumed early DEPLOY, then leaves M1 at 1000 µs:
+
+```sh
+~/.platformio/penv/bin/python scripts/pwm_bench.py
+```
+
+Pulling the GPIO27 wire while ARMING is a manual check for `PwmLost` (ERR 9).
+
 ## Modules
 
 `fsm` owns transitions and deadlines; `uart_protocol` owns framing/serialization;
 `uart_handler` connects UART2; `web_server` serves the panel/API; `indicator_pattern`
 and `indicators` implement patterns/GPIO; `event_log` validates/persists LittleFS;
-`main` performs startup checks and shares command dispatch between both channels.
+`settings` parses `settings.json`; `pwm_decoder` turns widths into commands and
+`pwm_input` captures them; `sensor`, `simulated_sensor` and `power_monitor`
+monitor the supply; `button_monitor` debounces BOOT; `self_test` and
+`device_info` implement POST; `main` wires them and shares command dispatch.
 Hardware/timing constants are in `include/config.h`.
