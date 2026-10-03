@@ -25,6 +25,8 @@ constexpr uint32_t kPulseDurationMs = 3000;
 constexpr uint32_t kTelemetryIntervalMs = 1000;
 constexpr std::size_t kUartLineCapacity = 64;
 constexpr std::size_t kJournalMaxBytes = 4096;
+constexpr uint32_t kMinFreeHeapBytes = 64UL * 1024;
+constexpr uint32_t kMinFlashBytes = 4UL * 1024 * 1024;
 constexpr char kApSsid[] = "ACTUATOR-SIM";
 constexpr char kApPassword[] = "password123";
 static_assert(kArmingDelayMs > 0 && kArmingDelayMs < 0x80000000UL,

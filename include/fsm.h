@@ -11,7 +11,13 @@ enum class ErrorCode : uint8_t {
   InvalidCommand = 2,
   ControlTimeout = 3,
   UartOverflow = 4,
-  StorageFailure = 5
+  StorageFailure = 5,
+  SettingsInvalid = 6,
+  ButtonStuck = 7,
+  PwmInvalid = 8,
+  PwmLost = 9,
+  PowerOutOfRange = 10,
+  SensorFailure = 11
 };
 
 struct StatusSnapshot {
@@ -31,6 +37,8 @@ class ActuatorFsm {
                     ErrorCode error = ErrorCode::SelfTestFailed);
   bool handle(Command command, uint32_t now);
   void update(uint32_t now);
+  // Refreshes the control deadline without a command (valid PWM signal).
+  void heartbeat(uint32_t now);
   void fault(ErrorCode error, uint32_t now);
   ActuatorState state() const { return state_; }
   ErrorCode error() const { return error_; }

@@ -1,4 +1,5 @@
 #include <cstring>
+#include <deque>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -12,9 +13,13 @@
 #include <WiFi.h>
 #include <LittleFS.h>
 #include "event_log.h"
+#include "fixtures.h"
+#include "harness.h"
 
 uint32_t fakeNow = 0;
 int fakePins[40] = {};
+bool fakeInputLow[40] = {};
+extern std::deque<uint16_t> fakePwmPulses;
 WebServer* WebServer::latest = nullptr;
 WiFiClass WiFi;
 LittleFSClass LittleFS;
@@ -23,11 +28,15 @@ HardwareSerial Serial2;
 void setup();
 void loop();
 
-#define CHECK(condition) do { if (!(condition)) throw std::runtime_error( \
-  std::string(__FILE__) + ":" + std::to_string(__LINE__) + ": " #condition); } while (false)
-
-static int failures = 0;
-static int cases = 0;
+int failures = 0;
+int cases = 0;
+void runFsmHeartbeatTests();
+void runSettingsTests();
+void runPwmDecoderTests();
+void runPowerMonitorTests();
+void runButtonMonitorTests();
+void runSelfTestTests();
+void runSimVinTests();
 static ActuatorFsm* commandTarget = nullptr;
 bool dispatchTestCommand(Command command, uint32_t now) {
   return commandTarget->handle(command, now);
@@ -36,18 +45,30 @@ CommandResult dispatchTestWebCommand(Command command, uint32_t now) {
   return commandTarget->handle(command, now) ? CommandResult::Accepted : CommandResult::Rejected;
 }
 CommandResult unavailableWebCommand(Command, uint32_t) { return CommandResult::Unavailable; }
-template <typename Test>
-void test(const char* name, Test body) {
-  ++cases;
-  try { body(); std::cout << "PASS " << name << '\n'; }
-  catch (const std::exception& error) {
-    ++failures;
-    std::cerr << "FAIL " << name << ": " << error.what() << '\n';
+
+// Main-loop drivers for integration tests: one 20 ms iteration per step.
+void runPwm(uint16_t widthUs, uint32_t durationMs) {
+  for (uint32_t elapsed = 0; elapsed < durationMs; elapsed += 20) {
+    fakePwmPulses.push_back(widthUs);
+    loop();
+    fakeNow += 20;
   }
+}
+void runSilence(uint32_t durationMs) {
+  for (uint32_t elapsed = 0; elapsed < durationMs; elapsed += 20) {
+    loop();
+    fakeNow += 20;
+  }
+}
+// Latest USB telemetry line; reading it, unlike /status, is not a heartbeat.
+std::string lastTelemetry() {
+  const auto at = Serial.output.rfind("STATE:");
+  if (at == std::string::npos) return "";
+  return Serial.output.substr(at, Serial.output.find('\n', at) - at);
 }
 
 ParseResult feed(UartLineParser& parser, const std::string& line) {
-  ParseResult result{ParseKind::None, Command::Invalid};
+  ParseResult result{ParseKind::None, Command::Invalid, 0};
   for (char byte : line) {
     const auto next = parser.feed(byte);
     if (next.kind != ParseKind::None) result = next;
@@ -546,18 +567,26 @@ int main() {
   });
   test("complete runtime POST, storage-fault recovery and durable deployment", [] {
     LittleFS = LittleFSClass();
+    LittleFS.files["/info.txt"] = "ACTUATOR-SIM\n";
+    LittleFS.files["/settings.json"] = readText("data/settings.json");
+    LittleFS.writesFail = true;
     WiFi.ready = true;
     fakeNow = 0;
     Serial.started = false;
     Serial2.started = false;
     setup();
     CHECK(Serial.started && Serial2.started);
+    CHECK(Serial.output.find("POST:FS:FAIL") != std::string::npos);
+    CHECK(Serial.output.find("POST:SETTINGS:OK") != std::string::npos);
+    CHECK(Serial.output.find("DEVICE:MAC=24:6F:28:01:02:03,CHIP=ESP32-D0WD-V3,REV=3,FLASH_MB=4") !=
+          std::string::npos);
     auto& http = *WebServer::latest;
     http.request("/status", HTTP_GET);
     CHECK(http.response.find("\"state\":\"FAULT\"") != std::string::npos);
+    CHECK(http.response.find("\"err\":5") != std::string::npos);
     http.request("/stop", HTTP_POST);
     CHECK(http.statusCode == 409);
-    LittleFS.files["/info.txt"] = "ACTUATOR-SIM\n";
+    LittleFS.writesFail = false;
     http.request("/stop", HTTP_POST);
     CHECK(http.statusCode == 200);
     Serial.input = "CMD:START\n";
@@ -596,6 +625,66 @@ int main() {
     CHECK(http.response.find("\"state\":\"SAFE\"") != std::string::npos);
     CHECK(http.response.find("\"pulse_active\":false") != std::string::npos);
   });
+  test("PWM alone arms with heartbeat, deploys, stops and faults on signal loss", [] {
+    auto& http = *WebServer::latest;
+    runPwm(1000, 600);
+    CHECK(Serial.output.find("PWM:1000us,BAND:STOP,CAPTURED:1,NEUTRAL:1") != std::string::npos);
+    runPwm(1500, 400);
+    CHECK(Serial.output.find("PWM:CMD:START") != std::string::npos);
+    CHECK(lastTelemetry().find("STATE:ARMING") == 0);
+    // Only PWM pulses for five minutes: the PWM heartbeat must keep arming alive.
+    runPwm(1500, 300000);
+    CHECK(lastTelemetry() == "STATE:ARMED,TIME_LEFT:0,ERR:0");
+    runPwm(2000, 400);
+    CHECK(lastTelemetry().find("STATE:ACTUATED") == 0);
+    CHECK(LittleFS.files["/events.log"].find("STATE:ACTUATED,COUNT:2\n") != std::string::npos);
+    runPwm(1000, 400);
+    CHECK(lastTelemetry().find("STATE:SAFE") == 0);
+    runPwm(1500, 400);
+    CHECK(lastTelemetry().find("STATE:ARMING") == 0);
+    runSilence(600);
+    CHECK(Serial.output.find("PWM:LOST") != std::string::npos);
+    CHECK(lastTelemetry() == "STATE:FAULT,TIME_LEFT:0,ERR:9");
+    // A controller reappearing at STOP is a starting position, not a recovery request.
+    runPwm(1000, 600);
+    CHECK(lastTelemetry() == "STATE:FAULT,TIME_LEFT:0,ERR:9");
+    http.request("/stop", HTTP_POST);
+    CHECK(http.statusCode == 200);
+    runSilence(600);
+  });
+  test("BOOT button press stops arming", [] {
+    Serial.input = "CMD:START\n";
+    runSilence(100);
+    CHECK(lastTelemetry().find("STATE:ARMING") == 0);
+    fakeInputLow[0] = true;
+    runSilence(100);
+    fakeInputLow[0] = false;
+    runSilence(100);
+    CHECK(Serial.output.find("BUTTON:STOP") != std::string::npos);
+    CHECK(lastTelemetry().find("STATE:SAFE") == 0);
+  });
+  test("a simulated supply excursion faults and blocks recovery until restored", [] {
+    auto& http = *WebServer::latest;
+    Serial.input = "SIM:VIN:4000\n";
+    runSilence(1100);
+    CHECK(Serial.output.find("SIM:VIN:4000:OK") != std::string::npos);
+    CHECK(lastTelemetry() == "STATE:FAULT,TIME_LEFT:0,ERR:10");
+    http.request("/stop", HTTP_POST);
+    CHECK(http.statusCode == 409);
+    Serial.input = "SIM:VIN:5000\n";
+    runSilence(100);
+    http.request("/stop", HTTP_POST);
+    CHECK(http.statusCode == 200);
+    runSilence(100);
+    CHECK(lastTelemetry().find("STATE:SAFE") == 0);
+  });
+  runFsmHeartbeatTests();
+  runSettingsTests();
+  runPwmDecoderTests();
+  runPowerMonitorTests();
+  runButtonMonitorTests();
+  runSelfTestTests();
+  runSimVinTests();
   std::cout << cases - failures << '/' << cases << " cases passed\n";
   return failures == 0 ? 0 : 1;
 }

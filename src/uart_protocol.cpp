@@ -2,8 +2,27 @@
 #include <cstdio>
 #include <cstring>
 
+namespace {
+// Accepts exactly "SIM:VIN:<1-5 digits>" with a value of at most 30000 mV.
+bool parseSimulatedVin(const char* line, int32_t& out) {
+  static const char prefix[] = "SIM:VIN:";
+  if (std::strncmp(line, prefix, sizeof(prefix) - 1) != 0) return false;
+  const char* digits = line + sizeof(prefix) - 1;
+  const std::size_t count = std::strlen(digits);
+  if (count == 0 || count > 5) return false;
+  int32_t value = 0;
+  for (std::size_t i = 0; i < count; ++i) {
+    if (digits[i] < '0' || digits[i] > '9') return false;
+    value = value * 10 + (digits[i] - '0');
+  }
+  if (value > 30000) return false;
+  out = value;
+  return true;
+}
+}  // namespace
+
 ParseResult UartLineParser::feed(char byte) {
-  const ParseResult none{ParseKind::None, Command::Invalid};
+  const ParseResult none{ParseKind::None, Command::Invalid, 0};
   if (discarding_) {
     if (byte == '\n') discarding_ = false;
     return none;
@@ -14,6 +33,9 @@ ParseResult UartLineParser::feed(char byte) {
     const bool empty = length_ == 0;
     length_ = 0;
     if (empty) return none;
+    int32_t millivolts = 0;
+    if (allowSimulation_ && parseSimulatedVin(buffer_, millivolts))
+      return {ParseKind::SimulateVin, Command::Invalid, millivolts};
     struct Mapping { const char* text; Command command; };
     static const Mapping commands[] = {
       {"CMD:START", Command::Start}, {"CMD:STOP", Command::Stop},
@@ -21,21 +43,21 @@ ParseResult UartLineParser::feed(char byte) {
     };
     for (const auto& mapping : commands) {
       if (std::strcmp(buffer_, mapping.text) == 0)
-        return {ParseKind::CommandReady, mapping.command};
+        return {ParseKind::CommandReady, mapping.command, 0};
     }
-    return {ParseKind::Invalid, Command::Invalid};
+    return {ParseKind::Invalid, Command::Invalid, 0};
   }
   // Embedded NUL/control/non-ASCII bytes must never produce a valid prefix.
   const auto value = static_cast<unsigned char>(byte);
   if ((value < 32 && byte != '\r') || value > 126) {
     length_ = 0;
     discarding_ = true;
-    return {ParseKind::Invalid, Command::Invalid};
+    return {ParseKind::Invalid, Command::Invalid, 0};
   }
   if (length_ >= sizeof(buffer_) - 1) {
     length_ = 0;
     discarding_ = true;
-    return {ParseKind::Overflow, Command::Invalid};
+    return {ParseKind::Overflow, Command::Invalid, 0};
   }
   buffer_[length_++] = byte;
   return none;

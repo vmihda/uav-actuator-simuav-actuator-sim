@@ -8,11 +8,16 @@
 constexpr int HIGH = 1;
 constexpr int LOW = 0;
 constexpr int OUTPUT = 1;
+constexpr int INPUT = 0;
+constexpr int INPUT_PULLUP = 5;
 extern uint32_t fakeNow;
 extern int fakePins[40];
+extern bool fakeInputLow[40];
 inline uint32_t millis() { return fakeNow; }
+inline void delay(uint32_t ms) { fakeNow += ms; }
 inline void pinMode(int, int) {}
 inline void digitalWrite(int pin, int value) { fakePins[pin] = value; }
+inline int digitalRead(int pin) { return fakeInputLow[pin] ? LOW : HIGH; }
 
 constexpr uint32_t SERIAL_8N1 = 0x800001c;
 

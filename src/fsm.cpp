@@ -62,6 +62,12 @@ void ActuatorFsm::update(uint32_t now) {
   }
 }
 
+void ActuatorFsm::heartbeat(uint32_t now) {
+  // An expired deadline takes precedence over a late heartbeat, as in handle().
+  update(now);
+  lastControlAt_ = now;
+}
+
 void ActuatorFsm::fault(ErrorCode error, uint32_t now) {
   error_ = error == ErrorCode::None ? ErrorCode::SelfTestFailed : error;
   transition(ActuatorState::FAULT, now);
