@@ -57,3 +57,23 @@ has no actuator power GPIO.
   event files; only deployment recording rotates files.
 - ACTUATED indication uses the latched pulse flag, so it cannot relight after
   a complete `millis()` cycle.
+
+# Verification — 2026-10-03: PWM commands, self-test and sensors
+
+| Check | Result |
+| --- | --- |
+| Native contracts (ASan/UBSan, strict warnings) | 89/89 passed |
+| Panel JavaScript | 8/8 passed |
+| Terminal protocol replay | Passed |
+| `esp32dev` and `esp32dev-test` firmware, LittleFS image | Built with `-Werror` |
+| Boot self-test on the ESP32-D0WD-V3 | All eight checks `OK`, MAC `A4:F0:0F:67:69:EC`, 4 MB flash |
+| PWM capture from SpeedyBee M1 on GPIO27 | 1000 µs commanded, 1001 µs measured, STOP band, neutral |
+| USB bench sequence (`hardware_smoke.py`) | Passed, finished SAFE |
+| PWM bench (`pwm_bench.py`) | Passed: arming, 35 s ARMED on PWM heartbeat only, deploy, STOP, early DEPLOY consumed |
+
+The filesystem was reprovisioned to install `settings.json`. The previous
+partition, including 33 deployment-journal records, is preserved in
+`backups/littlefs-before-settings.bin` (SHA-256
+`1811fa4f080a86cb827172bafde3140a7f326cf39b6057e8b260f3d1be9b5bf5`).
+The flight controller stayed disarmed; M1 was left at 1000 µs, which is not
+persisted across a flight-controller reboot.
