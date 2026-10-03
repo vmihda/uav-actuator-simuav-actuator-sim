@@ -143,8 +143,9 @@ This is how a flight controller would drive it. The pulse width picks the comman
 | under 800 or over 2200 µs | invalid signal |
 
 Without an RC transmitter, set the width on SpeedyBee output M1 from the laptop
-over MAVLink. The setting is not stored and disappears when the flight controller
-reboots:
+over MAVLink. The script finds the flight controller on USB by itself (`--port`
+overrides it). The setting is not stored and disappears when the flight
+controller reboots:
 
 ```sh
 ~/.platformio/penv/bin/python scripts/set_fc_pwm.py 1000   # STOP, also "neutral"
@@ -274,7 +275,9 @@ scripts need the port. Install pymavlink once:
 ~/.platformio/penv/bin/pip install --target .pio/python-deps pymavlink
 ```
 
-USB commands, then the same through ArduPilot and UART6:
+USB commands, then the same through ArduPilot and UART6. macOS may rename the
+flight controller's port when you move its cable, so check
+`~/.platformio/penv/bin/pio device list` if `/dev/cu.usbmodem2101` is not found:
 
 ```sh
 ~/.platformio/penv/bin/python scripts/hardware_smoke.py --port /dev/cu.usbserial-A5069RR4

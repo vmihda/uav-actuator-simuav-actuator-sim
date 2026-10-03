@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / ".pio" / "python-deps"))
 import serial
 from pymavlink import mavutil
+from set_fc_pwm import find_flight_controller
 
 STATE = re.compile(r"STATE:([A-Z]+),TIME_LEFT:(\d+),ERR:(\d+)")
 
@@ -97,12 +98,12 @@ class FlightControllerOutput:
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--fc-port", default="/dev/cu.usbmodem2101")
+    parser.add_argument("--fc-port", help="flight-controller port (default: auto-detect)")
     parser.add_argument("--esp-port", default="/dev/cu.usbserial-A5069RR4")
     parser.add_argument("--servo", type=int, default=1, help="flight-controller output number (M1 = 1)")
     args = parser.parse_args()
     esp = Esp32Telemetry(args.esp_port)
-    fc = FlightControllerOutput(args.fc_port, args.servo)
+    fc = FlightControllerOutput(args.fc_port or find_flight_controller(), args.servo)
     try:
         esp.wait_state("SAFE", 3)
         fc.set(1000)
