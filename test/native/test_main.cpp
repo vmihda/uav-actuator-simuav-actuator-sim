@@ -392,7 +392,7 @@ int main() {
     CHECK(std::strcmp(WiFi.key, "password123") == 0);
     WebServer::latest->request("/", HTTP_GET);
     CHECK(WebServer::latest->statusCode == 200);
-    CHECK(WebServer::latest->response.find("ACTUATOR-SIM") != std::string::npos);
+    CHECK(WebServer::latest->response.find("<title>Розумний вогнегасник</title>") != std::string::npos);
   });
   test("SoftAP initialization failure is reported to POST", [] {
     ActuatorFsm fsm;

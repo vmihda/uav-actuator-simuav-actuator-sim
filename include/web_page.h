@@ -3,10 +3,10 @@
 #include <Arduino.h>
 
 static const char kWebPage[] PROGMEM = R"HTML(<!doctype html>
-<html lang="en">
+<html lang="uk">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="color-scheme" content="dark"><title>ACTUATOR-SIM</title>
+<meta name="color-scheme" content="dark"><title>Розумний вогнегасник</title>
 <style>
 :root{font:16px system-ui,sans-serif;color:#e9eff5;background:#10161c;--line:#35404b}
 *{box-sizing:border-box}body{margin:0;padding:32px 18px}main{max-width:680px;margin:auto}
@@ -22,25 +22,30 @@ h1{font-size:20px;letter-spacing:.06em;margin:0}header span{font-size:12px;color
 </style>
 </head>
 <body><main>
-<header><h1>ACTUATOR-SIM</h1><span>ESP32 / SOFTWARE SIMULATION</span></header>
-<p class="intro">Manual recovery-controller test panel. Arm, monitor the countdown and simulate deployment.</p>
-<section class="panel" aria-label="Controller status">
-<div class="label">Controller state</div><div id="state" class="state">CONNECTING</div>
-<div class="metrics"><div><div class="label">Time remaining</div><div id="timer" class="value">-- s</div></div>
-<div><div class="label">Simulated pulse</div><div id="pulse" class="value">OFF</div></div></div>
-<dl><dt class="label">Error</dt><dd id="error">--</dd></dl>
-<div class="controls"><button id="start" disabled>Start (Arm)</button><button id="stop" disabled>Disarm (Stop)</button>
-<button id="deploy" disabled>Deploy (Activate)</button></div>
-<p id="message" class="message" role="status" aria-live="polite">Waiting for the controller...</p>
+<header><h1>РОЗУМНИЙ ВОГНЕГАСНИК</h1><span>ESP32 / ПРОГРАМНА ІМІТАЦІЯ</span></header>
+<p class="intro">Вогнегасник з контактними вусиками. «Старт» запускає таймер безпеки, а коли він закінчиться,
+вогнегасник зведено: досить торкнутися вусиками об’єкта, і він спрацює.</p>
+<section class="panel" aria-label="Стан контролера">
+<div class="label">Стан</div><div id="state" class="state">ПІДКЛЮЧЕННЯ</div>
+<div class="metrics"><div><div class="label">Таймер безпеки</div><div id="timer" class="value">-- с</div></div>
+<div><div class="label">Імпульс спрацювання</div><div id="pulse" class="value">ВИМК</div></div></div>
+<dl><dt class="label">Помилка</dt><dd id="error">--</dd></dl>
+<div class="controls"><button id="start" disabled>Старт (зведення)</button><button id="stop" disabled>Стоп (знешкодження)</button>
+<button id="deploy" disabled>Спрацювання</button></div>
+<p id="message" class="message" role="status" aria-live="polite">Очікування контролера...</p>
 </section>
-<p class="foot">Deployment is available only in ARMED. STOP cancels preparation and ends an active pulse.
-Status refreshes every second. The actuator pulse is simulated; this firmware has no power output.</p>
+<p class="foot">Спрацювати можна тільки в стані ЗВЕДЕНО, кнопкою або дотиком вусиків; поки йде таймер безпеки,
+вусики не реагують. Якщо дотику так і не було, вогнегасник згодом сам повертається в стан БЕЗПЕЧНИЙ.
+Стоп скасовує зведення й обриває імпульс. Сам імпульс лише імітація, силового виходу в прошивці немає.
+Стан оновлюється раз на секунду.</p>
 </main>
 <script>
 'use strict';
 const elements = Object.fromEntries(['state','timer','pulse','error','start','stop','deploy','message'].map(id => [id,document.getElementById(id)]));
-const errors = ['None','Self-test failed','Invalid command','Control timeout','UART line overflow','Storage failure',
-  'Settings invalid','Button stuck','PWM signal invalid','PWM signal lost','Supply voltage out of range','Sensor failure','Contact whiskers stuck'];
+const errors = ['Немає','Збій самоперевірки','Некоректна команда','Тайм-аут керування','Переповнення рядка UART',
+  'Збій сховища','Некоректні налаштування','Кнопка залипла','Некоректний PWM-сигнал','Втрата PWM-сигналу',
+  'Напруга живлення поза межами','Збій датчика','Вусики замкнені (залипання)'];
+const states = {POST:'САМОПЕРЕВІРКА',SAFE:'БЕЗПЕЧНИЙ',ARMING:'ЗВЕДЕННЯ',ARMED:'ЗВЕДЕНО',ACTUATED:'СПРАЦЮВАВ',FAULT:'АВАРІЯ'};
 let current = null;
 let commandPending = false;
 let inFlight = 0;
@@ -59,26 +64,26 @@ function show(seq, update) {
   update();
 }
 function render(data) {
-  if (!data || !['POST','SAFE','ARMING','ARMED','ACTUATED','FAULT'].includes(data.state)
+  if (!data || !Object.prototype.hasOwnProperty.call(states, data.state)
       || !Number.isFinite(data.time_left) || !Number.isInteger(data.err)) throw new Error('Invalid status');
   current = data;
-  elements.state.textContent = data.state;
+  elements.state.textContent = states[data.state];
   elements.state.dataset.state = data.state;
-  elements.timer.textContent = data.time_left + ' s';
-  elements.pulse.textContent = data.pulse_active ? 'ON' : 'OFF';
-  elements.error.textContent = data.err + ' / ' + (errors[data.err] || 'Unknown');
-  elements.message.textContent = data.accepted === false ? 'Command rejected in the current state.' :
-    data.state === 'FAULT' ? 'Fault detected. STOP retries health checks and returns to SAFE when they pass.' :
-    data.state === 'ARMING' ? 'Preparing. Keep this page open to maintain the control heartbeat.' :
-    data.state === 'ARMED' ? 'Ready for simulated deployment.' :
-    data.state === 'ACTUATED' ? 'Deployment latched. STOP returns to SAFE.' :
-    'Connected. Preparation interval: ' + data.arming_seconds + ' seconds.';
+  elements.timer.textContent = data.time_left + ' с';
+  elements.pulse.textContent = data.pulse_active ? 'УВІМК' : 'ВИМК';
+  elements.error.textContent = data.err + ' / ' + (errors[data.err] || 'Невідома');
+  elements.message.textContent = data.accepted === false ? 'Команду відхилено в поточному стані.' :
+    data.state === 'FAULT' ? 'Аварія. Стоп запустить самоперевірку ще раз і, якщо все гаразд, поверне в стан БЕЗПЕЧНИЙ.' :
+    data.state === 'ARMING' ? 'Іде таймер безпеки, вусики ще не активні. Не закривайте сторінку: поки вона відкрита, зв’язок не обривається.' :
+    data.state === 'ARMED' ? 'Зведено: дотик вусиків або кнопка «Спрацювання» запускає імітацію.' :
+    data.state === 'ACTUATED' ? 'Спрацювання зафіксовано. Стоп повертає в стан БЕЗПЕЧНИЙ.' :
+    'Підключено. Таймер безпеки: ' + data.arming_seconds + ' с.';
 }
 function unavailable(state, message) {
   current = null;
   elements.state.textContent = state;
   elements.state.dataset.state = '';
-  elements.timer.textContent = '-- s';
+  elements.timer.textContent = '-- с';
   elements.pulse.textContent = '--';
   elements.error.textContent = '--';
   elements.message.textContent = message;
@@ -97,14 +102,14 @@ async function request(path, method = 'GET') {
   try {
     const response = await fetch(path, {method,cache:'no-store',signal:controller.signal});
     if (response.status === 503) {
-      show(seq, () => unavailable('UNKNOWN', 'Controller busy: command outcome unknown. Refreshing status...'));
+      show(seq, () => unavailable('НЕВІДОМО', 'Контролер зайнятий: результат команди невідомий. Оновлюю стан...'));
       return;
     }
     if (!response.ok && response.status !== 409) throw new Error('HTTP ' + response.status);
     const data = await response.json();
     show(seq, () => render(data));
   } catch (error) {
-    show(seq, () => unavailable('DISCONNECTED', 'Connection lost. Reconnecting...'));
+    show(seq, () => unavailable('НЕМАЄ ЗВ’ЯЗКУ', 'Зв’язок втрачено. Перепідключення...'));
   } finally {
     clearTimeout(deadline);
     --inFlight;
