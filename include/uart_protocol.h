@@ -5,11 +5,11 @@
 #include "config.h"
 #include "fsm.h"
 
-enum class ParseKind { None, CommandReady, Invalid, Overflow, SimulateVin };
+enum class ParseKind { None, CommandReady, Invalid, Overflow, SimulateVin, SimulateContact };
 struct ParseResult {
   ParseKind kind;
   Command command;
-  int32_t value;  // Millivolts for SimulateVin.
+  int32_t value;  // Millivolts for SimulateVin, 0 or 1 for SimulateContact.
 };
 
 class UartLineParser {

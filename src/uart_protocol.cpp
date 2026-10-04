@@ -19,6 +19,16 @@ bool parseSimulatedVin(const char* line, int32_t& out) {
   out = value;
   return true;
 }
+
+// Accepts exactly "SIM:CONTACT:0" (open) or "SIM:CONTACT:1" (closed).
+bool parseSimulatedContact(const char* line, int32_t& out) {
+  static const char prefix[] = "SIM:CONTACT:";
+  if (std::strncmp(line, prefix, sizeof(prefix) - 1) != 0) return false;
+  const char* digit = line + sizeof(prefix) - 1;
+  if ((digit[0] != '0' && digit[0] != '1') || digit[1] != '\0') return false;
+  out = digit[0] - '0';
+  return true;
+}
 }  // namespace
 
 ParseResult UartLineParser::feed(char byte) {
@@ -36,6 +46,9 @@ ParseResult UartLineParser::feed(char byte) {
     int32_t millivolts = 0;
     if (allowSimulation_ && parseSimulatedVin(buffer_, millivolts))
       return {ParseKind::SimulateVin, Command::Invalid, millivolts};
+    int32_t contact = 0;
+    if (allowSimulation_ && parseSimulatedContact(buffer_, contact))
+      return {ParseKind::SimulateContact, Command::Invalid, contact};
     struct Mapping { const char* text; Command command; };
     static const Mapping commands[] = {
       {"CMD:START", Command::Start}, {"CMD:STOP", Command::Stop},

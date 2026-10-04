@@ -25,11 +25,13 @@ void UartHandler::update(uint32_t now) {
       case ParseKind::Overflow:
         fsm_.fault(ErrorCode::UartOverflow, now);
         break;
-      case ParseKind::SimulateVin: {
-        const bool accepted = simulation_ != nullptr && simulation_(result.value);
+      case ParseKind::SimulateVin:
+      case ParseKind::SimulateContact: {
+        const bool accepted = simulation_ != nullptr && simulation_(result.kind, result.value);
         char reply[40];
-        std::snprintf(reply, sizeof(reply), "SIM:VIN:%ld:%s\n", static_cast<long>(result.value),
-                      accepted ? "OK" : "REJECTED");
+        std::snprintf(reply, sizeof(reply), "SIM:%s:%ld:%s\n",
+                      result.kind == ParseKind::SimulateVin ? "VIN" : "CONTACT",
+                      static_cast<long>(result.value), accepted ? "OK" : "REJECTED");
         const std::size_t length = std::strlen(reply);
         if (port_.availableForWrite() >= static_cast<int>(length))
           port_.write(reinterpret_cast<const uint8_t*>(reply), length);

@@ -12,6 +12,7 @@ struct PwmRange {
 struct Settings {
   int pwmInputPin;
   int buttonPin;  // -1 disables the button.
+  int contactPin;  // -1 selects the simulated whisker contact.
   uint16_t pwmValidMinUs;
   uint16_t pwmValidMaxUs;
   PwmRange stop;
@@ -25,6 +26,9 @@ struct Settings {
   uint32_t powerStableMs;
   uint32_t buttonDebounceMs;
   uint32_t buttonStuckMs;
+  uint32_t contactDebounceMs;
+  uint32_t contactStuckMs;
+  uint32_t contactArmedTimeoutMs;
 };
 
 // Parses and strictly validates settings JSON. On failure returns false and

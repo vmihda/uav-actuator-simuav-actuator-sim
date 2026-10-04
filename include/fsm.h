@@ -17,7 +17,8 @@ enum class ErrorCode : uint8_t {
   PwmInvalid = 8,
   PwmLost = 9,
   PowerOutOfRange = 10,
-  SensorFailure = 11
+  SensorFailure = 11,
+  ContactStuck = 12
 };
 
 struct StatusSnapshot {
@@ -39,6 +40,8 @@ class ActuatorFsm {
   void update(uint32_t now);
   // Refreshes the control deadline without a command (valid PWM signal).
   void heartbeat(uint32_t now);
+  // ARMED returns to SAFE after this long without a deployment; 0 disables it.
+  void setArmedTimeout(uint32_t ms) { armedTimeoutMs_ = ms; }
   void fault(ErrorCode error, uint32_t now);
   ActuatorState state() const { return state_; }
   ErrorCode error() const { return error_; }
@@ -63,4 +66,5 @@ class ActuatorFsm {
   uint32_t armingMs_;
   uint32_t timeoutMs_;
   uint32_t pulseMs_;
+  uint32_t armedTimeoutMs_ = 0;
 };

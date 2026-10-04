@@ -14,6 +14,7 @@ struct SelfTestInputs {
   DeviceInfo device;
   bool buttonEnabled;
   bool buttonStuck;
+  bool contactStuck;  // Whiskers closed for contact.stuck_ms.
   PowerVerdict powerVerdict;
   PowerVerdict powerInstant;
   bool pwmReady;

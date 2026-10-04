@@ -1,78 +1,84 @@
-# ESP32 Actuator Simulator
+# Розумний вогнегасник на ESP32
 
-Firmware for an ESP32 that pretends to be the controller of a one-shot actuator,
-such as a parachute release. It arms on command, waits out a safety timer, and on
-deployment turns a logical output on for 3 seconds. Nothing is ever powered.
-The "output" is a flag in memory that you see on the LED and in the logs.
+Прошивка ESP32 для розумного вогнегасника з контактними вусиками і таймером
+безпеки. Її вмикають командою. Поки йде таймер безпеки, вона нічого не робить.
+Коли таймер закінчився, вогнегасник зведено: дотик вусиків до об'єкта або команда
+«спрацювання» вмикає вихід на 3 секунди. Живлення ніде не подається. «Вихід»
+тут лише прапорець у пам'яті, його видно на світлодіоді та в логах.
 
-You can drive it four ways: PWM from a flight controller, a web page over the
-ESP32's own Wi-Fi, ASCII commands on UART2, or the BOOT button (stop only). Bad
-input, a lost signal or a failed self-test puts it in FAULT, where nothing can arm
-or deploy until a STOP passes the self-test again.
+Керувати можна чотирма способами: PWM із польотного контролера, вебсторінка
+через власну Wi-Fi мережу ESP32, ASCII-команди по UART2 і кнопка BOOT (тільки
+стоп). Некоректні дані, втрата сигналу чи невдала самоперевірка переводять
+систему в FAULT. Звідти не можна ні звести, ні спрацювати, доки STOP не пройде
+самоперевірку знову.
 
-## What you need
+## Що потрібно
 
-- An ESP32 dev board (tested on ESP32-D0WD-V3 with 4 MB flash) and a USB cable.
-- [PlatformIO Core](https://platformio.org/install) in `~/.platformio`. Python 3
-  runs the helper scripts. Node.js is only needed for the web panel tests.
-- Optional, for PWM and UART control: a SpeedyBee F405 V3 running ArduPilot, its
-  8-pin ESC cable and four jumper wires.
+- Плата ESP32 (перевірено на ESP32-D0WD-V3 з 4 МБ flash) і USB-кабель.
+- [PlatformIO Core](https://platformio.org/install) у `~/.platformio`. Допоміжні
+  скрипти працюють на Python 3. Node.js потрібен лише для тестів вебсторінки.
+- За бажанням, для PWM і UART: SpeedyBee F405 V3 з ArduPilot, його 8-контактний
+  кабель ESC і чотири дроти-перемички.
 
-## Wiring
+## Підключення
 
 | ESP32 | SpeedyBee F405 V3 |
 | --- | --- |
 | GPIO16 (RX2) | T6 |
 | GPIO17 (TX2) | R6 |
-| GPIO27 (PWM in) | M1 |
+| GPIO27 (вхід PWM) | M1 |
 | GND | G |
 
-M1 sits on the 8-pin ESC connector, marked `G V 1 2 3 4 C T` on the board. Count
-from `G`: the second contact is `V` (battery), the third is M1. Do not connect
-`V`, and keep the battery off; the flight controller runs from USB for the bench.
-M1 carries 50 Hz, 3.3 V PWM, safe to wire straight into the ESP32.
+M1 стоїть на 8-контактному роз'ємі ESC з маркуванням `G V 1 2 3 4 C T`. Лічіть
+від `G`: другий контакт `V` (батарея), третій M1. `V` не підключайте, батарею
+не вмикайте, на стенді контролер живиться від USB. На M1 іде PWM 50 Гц, 3,3 В,
+його можна заводити прямо в ESP32.
 
-On the ESP32 itself, GPIO2 drives the LED and the BOOT button (GPIO0) acts as STOP.
-Holding BOOT while the board powers up starts the ROM bootloader instead of the
-firmware, which is harmless but looks like a dead board.
+На самій ESP32 GPIO2 керує світлодіодом, а кнопка BOOT (GPIO0) працює як STOP.
+Якщо тримати BOOT під час увімкнення, стартує ROM-завантажувач замість прошивки.
+Це нешкідливо, але плата виглядає мертвою.
 
-## Build and flash
+Контактний вусик це нормально розімкнений контакт між GPIO26 і GND. Внутрішню
+підтяжку вмикає прошивка. На стенді вусик замінює перемичка з GPIO26: торкнулися
+нею GND, і контакт замкнувся.
 
-There are two firmware builds. `esp32dev` is the real one, with the five-minute
-safety timer. `esp32dev-test` arms in 10 seconds and also accepts commands typed
-over USB, which the bench scripts rely on.
+## Збірка і прошивка
 
-Build both, plus the filesystem image:
+Збірок дві. `esp32dev` робоча, з таймером безпеки на 5 хвилин. `esp32dev-test`
+зводиться за 10 секунд і ще приймає команди з USB. На цьому тримаються скрипти
+для стенда.
+
+Зібрати обидві збірки й образ файлової системи:
 
 ```sh
 python3 scripts/build_firmware.py
 ```
 
-The first time, flash firmware and filesystem together. Replace the port with
-yours (`~/.platformio/penv/bin/pio device list` shows it):
+Першого разу прошийте прошивку й файлову систему разом. Порт підставте свій,
+його показує `~/.platformio/penv/bin/pio device list`:
 
 ```sh
 python3 scripts/build_firmware.py --environment esp32dev-test --upload --port /dev/cu.usbserial-A5069RR4
 ```
 
-The filesystem image carries `data/info.txt` and `data/settings.json`. Uploading
-it erases everything on the filesystem, including the deployment journal. After
-the first time, flash only the firmware unless you changed the settings:
+В образі файлової системи лежать `data/info.txt` і `data/settings.json`. Його
+заливка стирає все на файловій системі, журнал спрацювань теж. Далі достатньо
+прошивати лише прошивку, якщо налаштування не мінялися:
 
 ```sh
 python3 scripts/build_firmware.py --environment esp32dev --firmware-only --upload --port /dev/cu.usbserial-A5069RR4
 ```
 
-## Check that it booted
+## Перевірка запуску
 
-Open the serial monitor. `--dtr 0 --rts 0` keeps the monitor from holding the
-board in reset:
+Відкрийте монітор порту. `--dtr 0 --rts 0` не дає монітору тримати плату в
+скиданні:
 
 ```sh
 ~/.platformio/penv/bin/pio device monitor -e esp32dev-test -p /dev/cu.usbserial-A5069RR4 -b 115200 --dtr 0 --rts 0
 ```
 
-A healthy start looks like this:
+Нормальний старт виглядає так:
 
 ```text
 DEVICE:MAC=A4:F0:0F:67:69:EC,CHIP=ESP32-D0WD-V3,REV=3,FLASH_MB=4
@@ -81,38 +87,40 @@ POST:SETTINGS:OK
 POST:CHIP:OK
 POST:HEAP:OK
 POST:BUTTON:OK
+POST:CONTACT:OK
 POST:POWER:OK
 POST:PWM:OK
 POST:LINKS:OK
 STATE:SAFE,TIME_LEFT:0,ERR:0
 ```
 
-Any `POST:<CHECK>:FAIL:<reason>` line explains what is wrong, and the board stays
-in FAULT. With the test build, don't type into the monitor unless you mean it:
-every line you send is a command.
+Рядок `POST:<ПЕРЕВІРКА>:FAIL:<причина>` пояснює, що не так, і плата лишається в
+FAULT. У тестовій збірці не друкуйте в монітор без потреби: кожен відправлений
+рядок це команда.
 
-A line like `[E][vfs_api.cpp:105] open(): /littlefs/events.previous.log does not
-exist` is noise from the Arduino LittleFS library when a file is absent. Ignore it.
+Рядок на кшталт `[E][vfs_api.cpp:105] open(): /littlefs/events.previous.log does
+not exist` пише бібліотека Arduino LittleFS, коли файлу немає. Не зважайте.
 
-## The web panel
+## Вебсторінка
 
-1. Join the Wi-Fi network `ACTUATOR-SIM` (password `password123`). It has no
-   internet access, so your phone may complain; stay connected anyway.
-2. Open http://192.168.4.1.
+1. Підключіться до Wi-Fi `ACTUATOR-SIM` (пароль `password123`). Інтернету в цій
+   мережі немає, телефон може про це попередити. Лишайтеся підключеними.
+2. Відкрийте http://192.168.4.1.
 
-The page shows the state, the arming countdown, whether the simulated pulse is on
-and the current error. It refreshes every second.
+Сторінка українською. На ній видно стан, відлік таймера безпеки, чи йде імпульс
+і поточну помилку. Оновлюється щосекунди.
 
-| Button | Works in | Does |
+| Кнопка | Коли працює | Що робить |
 | --- | --- | --- |
-| Start (Arm) | SAFE | Starts the safety timer (ARMING) |
-| Disarm (Stop) | any state | Back to SAFE; in FAULT it reruns the self-test first |
-| Deploy (Activate) | ARMED | 3-second simulated pulse, then stays ACTUATED until Stop |
+| Старт (зведення) | БЕЗПЕЧНИЙ | Запускає таймер безпеки (ЗВЕДЕННЯ) |
+| Стоп (знешкодження) | у будь-якому стані | Назад у БЕЗПЕЧНИЙ; в АВАРІЇ спершу повторює самоперевірку |
+| Спрацювання | ЗВЕДЕНО | Імітований імпульс на 3 с, далі стан СПРАЦЮВАВ до Стоп |
 
-Keep the page open and in the foreground while arming. Its once-a-second refresh
-is the heartbeat; without any heartbeat for 30 seconds the board faults with ERR 3.
+Поки йде зведення, тримайте сторінку відкритою й на передньому плані. Її щосекундне
+опитування і є heartbeat. Якщо heartbeat не було 30 секунд, плата переходить у
+FAULT з ERR 3.
 
-The same endpoints work from a terminal:
+Ті самі адреси працюють і з термінала:
 
 ```sh
 curl http://192.168.4.1/status
@@ -125,56 +133,78 @@ curl -X POST http://192.168.4.1/stop
 {"state":"ARMING","time_left":10,"err":0,"pulse_active":false,"deployment_count":0,"accepted":true,"arming_seconds":10,"simulation":true}
 ```
 
-A command allowed in the current state returns 200. A refused one returns 409 with
-`"accepted":false` and the current status. 503 `command_outcome_unknown` means the
-firmware didn't answer within a second; the command may still have run, so check
-`/status`. GET on a command URL returns 405 and changes nothing.
+Дозволена в поточному стані команда повертає 200. Відхилена повертає 409 з
+`"accepted":false` і поточним станом. 503 `command_outcome_unknown` означає, що
+прошивка не відповіла за секунду. Команда могла й виконатися, тож перевірте
+`/status`. GET на адресу команди повертає 405 і нічого не змінює.
 
-## Commanding over PWM
+## Керування по PWM
 
-This is how a flight controller would drive it. The pulse width picks the command:
+Так системою керував би польотний контролер. Команду задає ширина імпульсу:
 
-| Pulse width | Command |
+| Ширина імпульсу | Команда |
 | --- | --- |
-| 900–1300 µs | STOP |
-| 1400–1600 µs | START |
-| 1700–2100 µs | DEPLOY |
-| between those bands | nothing (dead zone) |
-| under 800 or over 2200 µs | invalid signal |
+| 900–1300 мкс | STOP |
+| 1400–1600 мкс | START |
+| 1700–2100 мкс | DEPLOY |
+| між цими смугами | нічого (мертва зона) |
+| менше 800 або більше 2200 мкс | некоректний сигнал |
 
-Without an RC transmitter, set the width on SpeedyBee output M1 from the laptop
-over MAVLink. The script finds the flight controller on USB by itself (`--port`
-overrides it). The setting is not stored and disappears when the flight
-controller reboots:
+Без пульта ширину на виході M1 SpeedyBee можна виставити з ноутбука по MAVLink.
+Скрипт сам знаходить контролер на USB (`--port` задає порт явно). Значення не
+зберігається і зникає після перезавантаження контролера:
 
 ```sh
-~/.platformio/penv/bin/python scripts/set_fc_pwm.py 1000   # STOP, also "neutral"
+~/.platformio/penv/bin/python scripts/set_fc_pwm.py 1000   # STOP, він же «нейтраль»
 ~/.platformio/penv/bin/python scripts/set_fc_pwm.py 1500   # START
 ~/.platformio/penv/bin/python scripts/set_fc_pwm.py 2000   # DEPLOY
-~/.platformio/penv/bin/python scripts/set_fc_pwm.py --read # what M1 outputs now
+~/.platformio/penv/bin/python scripts/set_fc_pwm.py --read # що зараз на M1
 ```
 
-Rules worth knowing before you test:
+Що варто знати перед перевіркою:
 
-- A width has to hold for 200 ms before it counts, and each band fires once. Holding
-  START does not restart the timer; you have to leave the band and come back.
-- Whatever band the signal is in when the ESP32 first sees it is treated as a
-  starting position and commands nothing.
-- START and DEPLOY only work after the width has passed through STOP. After a
-  fault the same applies again, unless the signal was already sitting at STOP.
-- A DEPLOY sent during ARMING is refused and used up. When the timer finishes, the
-  board goes to ARMED and waits; it does not deploy on its own.
-- While the signal is valid it counts as the heartbeat, so a flight controller can
-  hold START through the whole five minutes.
-- If pulses stop, or every pulse is out of range, for 500 ms during ARMING or ARMED,
-  the board faults with ERR 9 (lost) or ERR 8 (invalid).
+- Ширина зараховується, лише якщо протрималася 200 мс, і кожна смуга спрацьовує
+  один раз. Утримання START не перезапускає таймер: треба вийти зі смуги й
+  повернутися.
+- Смуга, у якій сигнал був, коли ESP32 його вперше побачила, вважається
+  стартовим положенням і нічого не командує.
+- START і DEPLOY працюють тільки після проходу через STOP. Після аварії так само,
+  хіба що сигнал уже стояв на STOP.
+- DEPLOY під час ЗВЕДЕННЯ відхиляється й витрачається. Коли таймер скінчиться,
+  плата перейде в ЗВЕДЕНО і чекатиме. Сама від цього не спрацює.
+- Поки сигнал коректний, він рахується як heartbeat, тож контролер може тримати
+  START усі п'ять хвилин.
+- Якщо імпульси зникли або всі вийшли за межі на 500 мс у ЗВЕДЕННІ чи ЗВЕДЕНО,
+  плата переходить у FAULT з ERR 9 (сигнал втрачено) або ERR 8 (некоректний).
 
-The serial log shows what the decoder sees, for example
-`PWM:1501us,BAND:START,CAPTURED:1,NEUTRAL:1` and `PWM:CMD:START`.
+У лозі видно, що бачить декодер, наприклад `PWM:1501us,BAND:START,CAPTURED:1,NEUTRAL:1`
+і `PWM:CMD:START`.
 
-## Commands over UART2 and USB
+## Контактні вусики
 
-UART2 accepts these lines (LF or CRLF):
+| Стан | Дотик вусиків |
+| --- | --- |
+| SAFE | Ігнорується. START при замкнених вусиках відхиляється (HTTP 409) |
+| ARMING | Ігнорується, для цього й потрібен таймер безпеки |
+| ARMED | Замкнення на 20 мс запускає спрацювання так само, як DEPLOY: спершу журнал, потім імпульс |
+| ACTUATED, FAULT | Ігнорується |
+
+- Якщо вусики замкнені 2 с у SAFE чи ARMING або під час самоперевірки на старті,
+  буде FAULT з ERR 12. Те саме станеться, якщо натиснути STOP після спрацювання,
+  а вусики ще торкаються об'єкта. Звільніть їх, потім STOP.
+- Якщо в ARMED дотику немає 2 хвилини, система сама повертається в SAFE.
+- PWM, вебсторінка й UART працюють як раніше. DEPLOY у стані ARMED спрацьовує,
+  а втрата сигналу чи тайм-аут керування так само ведуть в аварію: вогнегасник
+  лишається на дроні.
+
+У лозі з'являються `CONTACT:CLOSED`, `CONTACT:OPEN`, `CONTACT:DEPLOY` і
+`CONTACT:START_REFUSED`. Якщо в налаштуваннях поставити `"contact": -1`, вусики
+стають симульованими. Тоді в тестовій збірці їх замикає команда `SIM:CONTACT:1`
+по USB, а розмикає `SIM:CONTACT:0`.
+
+## Команди по UART2 і USB
+
+UART2 приймає такі рядки (LF або CRLF):
 
 ```text
 CMD:START
@@ -183,75 +213,83 @@ CMD:DEPLOY
 CMD:STATUS
 ```
 
-It answers STATUS at once and also sends telemetry every second:
-`STATE:ARMING,TIME_LEFT:9,ERR:0`. Any other line, a control byte or a line over
-63 characters is a fault. The test build accepts the same commands over USB, plus
-`SIM:VIN:<millivolts>` to change the simulated supply voltage (replies
-`SIM:VIN:4200:OK`).
+На STATUS плата відповідає одразу, а телеметрію шле й так, щосекунди:
+`STATE:ARMING,TIME_LEFT:9,ERR:0`. Будь-який інший рядок, керуючий байт чи рядок
+довший за 63 символи веде в аварію. Тестова збірка приймає ці ж команди по USB,
+а ще `SIM:VIN:<мілівольти>` для симульованої напруги живлення (відповідь
+`SIM:VIN:4200:OK`) і `SIM:CONTACT:<0|1>` для симульованих вусиків. Якщо цей вхід
+справжній, відповідь закінчується на `:REJECTED`.
 
-## States and the LED
+## Стани і світлодіод
 
-| State | LED | Meaning |
+| Стан | Світлодіод | Що означає |
 | --- | --- | --- |
-| SAFE | 1 s on, 1 s off | Idle; Start is allowed |
-| ARMING | blinks 2× per second | Safety timer running (5 min, 10 s in the test build) |
-| ARMED | blinks 5× per second | Deploy is allowed |
-| ACTUATED | solid for 3 s, then off | Deployed; stays here until Stop |
-| FAULT | three short flashes, pause | Something failed; Stop retries the self-test |
+| SAFE (БЕЗПЕЧНИЙ) | 1 с горить, 1 с ні | Очікування; можна дати Старт |
+| ARMING (ЗВЕДЕННЯ) | 2 спалахи на секунду | Іде таймер безпеки (5 хв, у тестовій збірці 10 с) |
+| ARMED (ЗВЕДЕНО) | 5 спалахів на секунду | Спрацьовує від команди чи дотику вусиків; без дотику через 2 хв назад у SAFE |
+| ACTUATED (СПРАЦЮВАВ) | горить 3 с, потім гасне | Спрацював; лишається тут до Стоп |
+| FAULT (АВАРІЯ) | три короткі спалахи, пауза | Щось зламалося; Стоп повторює самоперевірку |
 
-The deployment is written to the journal on flash before the pulse starts, as
-`UPTIME_MS:10000,STATE:ACTUATED,COUNT:1`. If that write fails, there is no pulse
-and the board faults with ERR 5.
+Спрацювання записується в журнал на flash ще до імпульсу, рядком
+`UPTIME_MS:10000,STATE:ACTUATED,COUNT:1`. Якщо запис не вдався, імпульсу не буде,
+а плата перейде в аварію з ERR 5.
 
-## Error codes
+## Коди помилок
 
-| ERR | Meaning | Usual cause and fix |
+| ERR | Що означає | Звична причина і що робити |
 | --- | --- | --- |
-| 0 | None | |
-| 1 | Self-test failure | UART2, Wi-Fi, watchdog, chip or heap check; see the `POST:` line |
-| 2 | Invalid command | Unknown or malformed line on UART/USB; send STOP |
-| 3 | Control timeout | No command, status request or PWM for 30 s in ARMING or ARMED; send STOP |
-| 4 | UART line overflow | Line longer than 63 characters; send STOP |
-| 5 | Storage failure | Filesystem not flashed or damaged; reflash the filesystem image |
-| 6 | Settings invalid | `settings.json` missing or wrong; the log names the field, fix it and reflash |
-| 7 | Button stuck | BOOT held during start-up; release it and send STOP |
-| 8 | PWM signal invalid | Pulses out of range in ARMING or ARMED, often a loose wire picking up noise |
-| 9 | PWM signal lost | No pulses in ARMING or ARMED; check the M1 wire |
-| 10 | Supply out of range | Voltage outside 4.5–5.5 V for 1 s; restore it, then STOP |
-| 11 | Sensor failure | Voltage sensor unreadable; STOP after it recovers |
+| 0 | Немає | |
+| 1 | Збій самоперевірки | UART2, Wi-Fi, watchdog, чип або пам'ять; дивіться рядок `POST:` |
+| 2 | Некоректна команда | Невідомий чи зіпсований рядок на UART/USB; надішліть STOP |
+| 3 | Тайм-аут керування | 30 с без команд, запитів стану чи PWM у ARMING або ARMED; надішліть STOP |
+| 4 | Переповнення рядка UART | Рядок довший за 63 символи; надішліть STOP |
+| 5 | Збій сховища | Файлову систему не залито або пошкоджено; залийте образ ФС знову |
+| 6 | Некоректні налаштування | `settings.json` немає або він хибний; лог називає поле, виправте й перезалийте |
+| 7 | Кнопка залипла | BOOT затиснута під час старту; відпустіть і надішліть STOP |
+| 8 | Некоректний PWM-сигнал | Імпульси поза межами в ARMING чи ARMED, часто це вільний дріт ловить шум |
+| 9 | Втрата PWM-сигналу | Немає імпульсів у ARMING чи ARMED; перевірте дріт M1 |
+| 10 | Напруга живлення поза межами | Напруга поза 4,5–5,5 В протягом 1 с; відновіть її, потім STOP |
+| 11 | Збій датчика | Датчик напруги не читається; STOP, коли оговтається |
+| 12 | Вусики замкнені (залипання) | Вусики замкнені 2 с поза ARMED; звільніть їх, потім STOP |
 
-STOP clears a fault only when the self-test passes. Settings are read once at boot,
-so ERR 6 needs a corrected file and a restart.
+STOP знімає аварію тільки тоді, коли самоперевірка проходить. Налаштування
+читаються один раз на старті, тож для ERR 6 потрібні виправлений файл і
+перезапуск.
 
-## Settings
+## Налаштування
 
-`data/settings.json` holds the PWM pin and bands, the button pin, timings and the
-supply limits. The firmware rejects the whole file if any field is missing, has
-the wrong type or makes no sense: bands that overlap, a pin used by UART or the
-LED, and so on. Set `"button": -1` to disable the button. After editing, flash the
-filesystem image again (this wipes the journal).
+У `data/settings.json` задано пін PWM і смуги, піни кнопки та вусиків, таймінги й
+межі напруги живлення. Секція `contact` задає антидребезг вусиків (20 мс), час
+залипання (2 с, не більше 3 с) і скільки ARMED чекає на дотик (2 хв). Прошивка
+відкидає весь файл, якщо якогось поля бракує, у нього не той тип або значення не
+має сенсу: смуги перекриваються, пін зайнятий UART чи світлодіодом тощо.
+`"button": -1` вимикає кнопку. Після редагування залийте образ ФС знову (журнал
+зітреться). Файл має версію 2. Файл версії 1, ще без вусиків, прошивка
+відхиляє з ERR 6, тож платі з цією прошивкою потрібен і новий образ ФС.
 
-The supply voltage is simulated for now, at 5.0 V by default. A real reading needs
-a voltage divider into an ADC pin, which the sensor interface is ready for.
+Напруга живлення поки симульована, за замовчуванням 5,0 В. Для справжнього
+вимірювання потрібен дільник напруги на пін АЦП, інтерфейс датчика до цього
+готовий.
 
-## Testing
+## Тестування
 
-### Without hardware
+### Без заліза
 
 ```sh
-python3 scripts/test_native.py      # firmware logic, 89 C++ tests with sanitizers
-python3 scripts/test_simulator.py   # scripted run through the terminal simulator
-node --test test/web/panel.test.cjs # the web page's JavaScript
+python3 scripts/test_native.py      # логіка прошивки, 104 тести C++ із санітайзерами
+python3 scripts/test_simulator.py   # сценарій через термінальний симулятор
+node --test test/web/panel.test.cjs # JavaScript вебсторінки
 ```
 
-`test_native.py` compiles the real firmware sources against fake hardware and
-runs them with a fake clock, so five minutes of arming takes a fraction of a
-second. It covers the state machine, PWM decoding, settings validation, the
-self-test, the supply and button monitors, UART parsing and the HTTP API.
+`test_native.py` компілює справжні вихідні файли прошивки разом із фейковим
+залізом і запускає їх із фейковим годинником. П'ять хвилин зведення минають за
+частку секунди. Тести покривають скінченний автомат, декодування PWM, перевірку
+налаштувань, самоперевірку, монітори живлення й кнопки, вусики, розбір UART і
+HTTP API.
 
-To try the state machine by hand, run the terminal simulator and type commands.
-`TICK:<ms>` moves time forward, `FAULT` injects an error, and `--normal` uses the
-five-minute timer:
+Скінченний автомат можна погратися вручну в термінальному симуляторі.
+`TICK:<мс>` просуває час, `FAULT` вносить помилку, `--normal` вмикає
+п'ятихвилинний таймер:
 
 ```sh
 python3 scripts/simulator.py
@@ -265,95 +303,101 @@ TICK:3000
 CMD:STOP
 ```
 
-### On the bench
+### На стенді
 
-These need the test build on the ESP32. The flight-controller scripts refuse to
-run if the flight controller is armed. Close the serial monitor first, since the
-scripts need the port. Install pymavlink once:
+Тут потрібна тестова збірка на ESP32. Скрипти для польотного контролера не
+запускаються, якщо він зведений. Спершу закрийте монітор порту, скриптам
+потрібен порт. Один раз встановіть pymavlink:
 
 ```sh
 ~/.platformio/penv/bin/pip install --target .pio/python-deps pymavlink
 ```
 
-USB commands, then the same through ArduPilot and UART6. macOS may rename the
-flight controller's port when you move its cable, so check
-`~/.platformio/penv/bin/pio device list` if `/dev/cu.usbmodem2101` is not found:
+Команди по USB, а потім те саме через ArduPilot і UART6. Коли переставляєте
+кабель контролера, macOS може перейменувати його порт. Якщо `/dev/cu.usbmodem2101`
+не знаходиться, дивіться `~/.platformio/penv/bin/pio device list`:
 
 ```sh
 ~/.platformio/penv/bin/python scripts/hardware_smoke.py --port /dev/cu.usbserial-A5069RR4
 ~/.platformio/penv/bin/python scripts/hardware_smoke.py --via-fc --port /dev/cu.usbmodem2101
 ```
 
-Both check that DEPLOY is refused early, then arm, deploy, stop, send a bad line and
-recover. They end in SAFE.
+Обидва перевіряють, що завчасний DEPLOY відхиляється, далі зводять, спрацьовують,
+зупиняють, шлють зіпсований рядок і відновлюються. Закінчують у SAFE.
 
-PWM only, about a minute:
+Тільки PWM, приблизно хвилина:
 
 ```sh
 ~/.platformio/penv/bin/python scripts/pwm_bench.py
 ```
 
-It moves M1 through STOP, START and DEPLOY and only listens to the ESP32. It holds
-ARMED for 35 seconds without sending anything else, which proves the PWM heartbeat,
-and checks that an early DEPLOY is refused. M1 is left at 1000 µs.
+Скрипт проводить M1 через STOP, START і DEPLOY і лише слухає ESP32. 35 секунд
+він тримає ARMED, нічого більше не надсилаючи, і цим доводить, що PWM працює як
+heartbeat. Ще перевіряє, що завчасний DEPLOY відхиляється. M1 лишається на 1000 мкс.
 
-Things to try by hand with the serial monitor open:
+Що спробувати вручну з відкритим монітором:
 
-- Lost signal: arm with `set_fc_pwm.py 1500`, wait for ARMED, then pull the wire
-  out of GPIO27. Expect `PWM:LOST` and ERR 9. If you pull it at the flight
-  controller end instead, the loose wire on GPIO27 picks up noise and you get
-  ERR 8. Both are faults, which is the point.
-- Supply drop (test build): type `SIM:VIN:4000` in the monitor. One second later
-  the board faults with ERR 10. `SIM:VIN:5000`, then STOP from the panel, brings it
-  back.
-- Button: press BOOT while arming. The log shows `BUTTON:STOP` and the board
-  returns to SAFE.
+- Втрата сигналу: зведіть через `set_fc_pwm.py 1500`, дочекайтеся ARMED і
+  висмикніть дріт із GPIO27. Чекайте `PWM:LOST` і ERR 9. Якщо висмикнути з боку
+  контролера, вільний дріт на GPIO27 ловить шум і буде ERR 8. Аварія в обох
+  випадках, так і задумано.
+- Просідання живлення (тестова збірка): наберіть у моніторі `SIM:VIN:4000`.
+  Через секунду буде аварія з ERR 10. `SIM:VIN:5000`, а потім Стоп на сторінці
+  повертають усе назад.
+- Кнопка: натисніть BOOT під час зведення. У лозі `BUTTON:STOP`, плата
+  повертається в SAFE.
+- Вусики: START, дочекайтеся ARMED (у тестовій збірці 10 с) і торкніться
+  перемичкою з GPIO26 до GND. Чекайте `CONTACT:DEPLOY`, ACTUATED і світлодіод на
+  3 с. Якщо ж тримати перемичку на GND 2 с під час ARMING, буде ERR 12.
 
-## Flight controller setup (ArduPilot)
+## Налаштування польотного контролера (ArduPilot)
 
-The bench used a SpeedyBee F405 V3 on ArduPilot 4.7.1, where R6/T6 are `SERIAL6`
-([board docs](https://ardupilot.org/copter/docs/common-speedybeef4-v3.html)). UART6
-is set up as a raw port with GPS disabled:
+На стенді був SpeedyBee F405 V3 з ArduPilot 4.7.1, де R6/T6 це `SERIAL6`
+([документація плати](https://ardupilot.org/copter/docs/common-speedybeef4-v3.html)).
+UART6 налаштовано як сирий порт, GPS вимкнено:
 
-| Parameter | Value |
+| Параметр | Значення |
 | --- | --- |
 | `SERIAL6_PROTOCOL` | `0` |
-| `SERIAL6_BAUD` | `115` (115200 baud) |
+| `SERIAL6_BAUD` | `115` (115200 бод) |
 | `SERIAL6_OPTIONS` | `0` |
 | `GPS1_TYPE` | `0` |
 | `GPS2_TYPE` | `0` |
 
-Protocol `0` opens the raw UART without a GPS or MAVLink driver. `-1` would
-disable the pins entirely in this version
-([SerialManager source](https://raw.githubusercontent.com/ArduPilot/ardupilot/Copter-4.7.1/libraries/AP_SerialManager/AP_SerialManager.cpp)).
-Changes take effect after a reboot:
+Протокол `0` відкриває сирий UART без драйвера GPS чи MAVLink. `-1` у цій версії
+вимкнув би піни зовсім
+([код SerialManager](https://raw.githubusercontent.com/ArduPilot/ardupilot/Copter-4.7.1/libraries/AP_SerialManager/AP_SerialManager.cpp)).
+Якщо там опиниться `2` (MAVLink2), контролер сипле в UART2 двійкові дані, і плата
+одразу після старту падає в ERR 2. Зміни набувають чинності після перезавантаження:
 
 ```sh
-~/.platformio/penv/bin/python scripts/inspect_fc.py               # read only
+~/.platformio/penv/bin/python scripts/inspect_fc.py               # тільки читання
 ~/.platformio/penv/bin/python scripts/configure_fc.py --apply --reboot
 ```
 
-The original values are saved in `backups/fc-parameters-before.json`. The ESP32's
-flash from before this project is in `backups/esp32-before-simulator.bin`.
+Початкові значення збережено в `backups/fc-parameters-before.json`. Вміст flash
+ESP32 до цього проєкту лежить у `backups/esp32-before-simulator.bin`.
 
-ArduPilot does not send these ASCII commands by itself, and the F405 V3 build has
-no Lua scripting
-([feature list](https://firmware.ardupilot.org/Copter/stable/speedybeef4v3/features.txt)).
-On the bench, `hardware_smoke.py --via-fc` pushes them through ArduPilot with
-MAVLink `SERIAL_CONTROL`. For PWM, M1 needs no configuration while
-`SERVO1_FUNCTION` is `0`.
+ArduPilot сам ці ASCII-команди не надсилає, а збірка для F405 V3 не має Lua
+([список можливостей](https://firmware.ardupilot.org/Copter/stable/speedybeef4v3/features.txt)).
+На стенді `hardware_smoke.py --via-fc` проштовхує їх через ArduPilot командою
+MAVLink `SERIAL_CONTROL`. Для PWM на M1 нічого налаштовувати не треба, поки
+`SERVO1_FUNCTION` дорівнює `0`.
 
-## How the code is laid out
+## Як влаштовано код
 
-The state machine (`fsm`), PWM decoding (`pwm_decoder`), settings validation
-(`settings`), the monitors (`power_monitor`, `button_monitor`) and the self-test
-(`self_test`) are plain C++ with no Arduino calls, which is what makes the host
-tests possible. Hardware sits in thin adapters: `pwm_input` (edge interrupt on
-GPIO27), `device_info` (MAC, chip, flash), `uart_handler`, `web_server`,
-`indicators` and `event_log`. `main.cpp` wires them together. Each loop it services
-the supply, then PWM, the button, UART and USB, and finally queued HTTP commands.
-That order decides which fault gets reported when several happen at once.
+Скінченний автомат (`fsm`), декодер PWM (`pwm_decoder`), перевірка налаштувань
+(`settings`), монітори (`power_monitor`, `button_monitor`) і самоперевірка
+(`self_test`) написані на чистому C++ без викликів Arduino. Саме тому їх можна
+тестувати на комп'ютері. Залізо сидить у тонких адаптерах: `pwm_input`
+(переривання по фронтах на GPIO27), `gpio_contact_sensor` (вусики на GPIO26),
+`device_info` (MAC, чип, flash), `uart_handler`, `web_server`, `indicators` і
+`event_log`. Вусики використовують той самий антидребезг, що й кнопка
+(`button_monitor`). Усе це з'єднує `main.cpp`. На кожному проході циклу він
+обслуговує живлення, потім PWM, кнопку, вусики, UART і USB, а наостанок HTTP-команди
+з черги. Від цього порядку залежить, яку аварію буде показано, коли кілька
+стались одночасно.
 
-The web server runs in its own low-priority task, so a slow client can't stall
-the main loop. Pins and timing constants live in `include/config.h`. A build uses
-about 48 KB of RAM and 850 KB of flash.
+Вебсервер працює в окремій задачі з низьким пріоритетом, тож повільний клієнт не
+гальмує основний цикл. Піни й часові константи лежать у `include/config.h`.
+Збірка займає приблизно 48 КБ RAM і 850 КБ flash.

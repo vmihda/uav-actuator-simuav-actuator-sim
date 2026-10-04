@@ -94,8 +94,8 @@ bool isReservedPin(long pin) {
 }
 
 bool readPins(JsonObjectConst pins, Settings& s, Errors& errors) {
-  static const char* const keys[] = {"pwm_input", "button"};
-  if (!onlyKeys(pins, "pins", keys, 2, errors)) return false;
+  static const char* const keys[] = {"pwm_input", "button", "contact"};
+  if (!onlyKeys(pins, "pins", keys, 3, errors)) return false;
   long pin = 0;
   if (!readInt(pins, "pwm_input", "pins.pwm_input", 0, 39, pin, errors)) return false;
   if (!isUsableGpio(pin)) return errors.fail("pins.pwm_input", "is not a usable GPIO");
@@ -109,6 +109,15 @@ bool readPins(JsonObjectConst pins, Settings& s, Errors& errors) {
     if (pin == s.pwmInputPin) return errors.fail("pins.button", "must differ from pins.pwm_input");
   }
   s.buttonPin = static_cast<int>(pin);
+  if (!readInt(pins, "contact", "pins.contact", -1, 39, pin, errors)) return false;
+  if (pin >= 0) {
+    if (!isUsableGpio(pin)) return errors.fail("pins.contact", "is not a usable GPIO");
+    if (pin >= 34) return errors.fail("pins.contact", "needs an internal pull-up (GPIO 0-33)");
+    if (isReservedPin(pin)) return errors.fail("pins.contact", "conflicts with the UART or LED pins");
+    if (pin == s.pwmInputPin) return errors.fail("pins.contact", "must differ from pins.pwm_input");
+    if (pin == s.buttonPin) return errors.fail("pins.contact", "must differ from pins.button");
+  }
+  s.contactPin = static_cast<int>(pin);
   return true;
 }
 
@@ -177,6 +186,24 @@ bool readButton(JsonObjectConst button, Settings& s, Errors& errors) {
   s.buttonStuckMs = static_cast<uint32_t>(stuck);
   return true;
 }
+
+bool readContact(JsonObjectConst contact, Settings& s, Errors& errors) {
+  static const char* const keys[] = {"debounce_ms", "stuck_ms", "armed_timeout_ms"};
+  if (!onlyKeys(contact, "contact", keys, 3, errors)) return false;
+  long debounce = 0;
+  long stuck = 0;
+  long armedTimeout = 0;
+  // The stuck ceiling keeps the boot sampling window well inside the 5 s watchdog.
+  if (!readInt(contact, "debounce_ms", "contact.debounce_ms", 5, 200, debounce, errors) ||
+      !readInt(contact, "stuck_ms", "contact.stuck_ms", 100, 3000, stuck, errors)) return false;
+  if (stuck <= debounce) return errors.fail("contact.stuck_ms", "must exceed contact.debounce_ms");
+  if (!readInt(contact, "armed_timeout_ms", "contact.armed_timeout_ms", 1000, 3600000,
+               armedTimeout, errors)) return false;
+  s.contactDebounceMs = static_cast<uint32_t>(debounce);
+  s.contactStuckMs = static_cast<uint32_t>(stuck);
+  s.contactArmedTimeoutMs = static_cast<uint32_t>(armedTimeout);
+  return true;
+}
 }  // namespace
 
 bool parseSettings(const char* json, std::size_t length, Settings& out,
@@ -191,21 +218,24 @@ bool parseSettings(const char* json, std::size_t length, Settings& out,
   }
   if (!document.is<JsonObjectConst>()) return errors.fail("settings.json", "must be an object");
   const JsonObjectConst root = document.as<JsonObjectConst>();
-  static const char* const keys[] = {"version", "pins", "pwm", "power", "button"};
-  if (!onlyKeys(root, "", keys, 5, errors)) return false;
+  static const char* const keys[] = {"version", "pins", "pwm", "power", "button", "contact"};
+  if (!onlyKeys(root, "", keys, 6, errors)) return false;
   long version = 0;
   JsonObjectConst pins;
   JsonObjectConst pwm;
   JsonObjectConst power;
   JsonObjectConst button;
-  if (!readInt(root, "version", "version", 1, 1, version, errors) ||
+  JsonObjectConst contact;
+  if (!readInt(root, "version", "version", 2, 2, version, errors) ||
       !readObject(root, "pins", "pins", pins, errors) ||
       !readObject(root, "pwm", "pwm", pwm, errors) ||
       !readObject(root, "power", "power", power, errors) ||
-      !readObject(root, "button", "button", button, errors)) return false;
+      !readObject(root, "button", "button", button, errors) ||
+      !readObject(root, "contact", "contact", contact, errors)) return false;
   Settings settings{};
   if (!readPins(pins, settings, errors) || !readPwm(pwm, settings, errors) ||
-      !readPower(power, settings, errors) || !readButton(button, settings, errors)) return false;
+      !readPower(power, settings, errors) || !readButton(button, settings, errors) ||
+      !readContact(contact, settings, errors)) return false;
   out = settings;
   return true;
 }
