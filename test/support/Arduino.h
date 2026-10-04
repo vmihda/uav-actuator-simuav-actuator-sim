@@ -18,13 +18,15 @@ inline void delay(uint32_t ms) { fakeNow += ms; }
 inline void pinMode(int, int) {}
 inline void digitalWrite(int pin, int value) { fakePins[pin] = value; }
 inline int digitalRead(int pin) { return fakeInputLow[pin] ? LOW : HIGH; }
+// GPIO 34..39 are input-only on the ESP32.
+inline bool digitalPinCanOutput(int pin) { return pin >= 0 && pin < 34; }
 
 constexpr uint32_t SERIAL_8N1 = 0x800001c;
 
 class HardwareSerial {
  public:
   void begin(uint32_t baud, uint32_t framing, int rx, int tx) {
-    baudRate = baud; serialConfig = framing; rxPin = rx; txPin = tx; started = true;
+    baudRate = baud; serialConfig = framing; rxPin = rx; txPin = tx; started = !failBegin;
   }
   std::size_t setRxBufferSize(std::size_t size) { return size; }
   explicit operator bool() const { return started; }
@@ -40,7 +42,7 @@ class HardwareSerial {
     output.append(reinterpret_cast<const char*>(bytes), size);
     return size;
   }
-  void begin(uint32_t baud) { baudRate = baud; started = true; }
+  void begin(uint32_t baud) { baudRate = baud; started = !failBegin; }
   template <typename... Args>
   void printf(const char* format, Args... args) {
     char buffer[256]; std::snprintf(buffer, sizeof(buffer), format, args...); output += buffer;
@@ -51,6 +53,7 @@ class HardwareSerial {
   int rxPin = -1;
   int txPin = -1;
   bool started = false;
+  bool failBegin = false;  // Simulates a UART driver that cannot be installed.
   std::string input;
   std::string output;
 };

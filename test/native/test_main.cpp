@@ -784,6 +784,40 @@ int main() {
     runSilence(100);
     CHECK(lastTelemetry().find("STATE:SAFE") == 0);
   });
+  test("boot logs every init step in order", [] {
+    Serial.output.clear();
+    setup();
+    const char* steps[] = {"INIT:PINS:OK", "INIT:DEBUG_UART:OK", "INIT:FLIGHT_UART:OK",
+                           "INIT:WEB:OK", "INIT:WATCHDOG:OK", "POST:"};
+    std::size_t at = 0;
+    for (const char* step : steps) {
+      const auto found = Serial.output.find(step, at);
+      CHECK(found != std::string::npos);
+      if (found != std::string::npos) at = found;
+    }
+  });
+  test("UART2 init failure stops boot in FAULT", [] {
+    // The FSM only leaves POST once; a fault stands in for a fresh boot here.
+    Serial.input = "BAD\n";
+    runSilence(100);
+    CHECK(lastTelemetry() == "STATE:FAULT,TIME_LEFT:0,ERR:2");
+    Serial2.failBegin = true;
+    Serial2.started = false;
+    Serial.output.clear();
+    setup();
+    CHECK(Serial.output.find("INIT:FLIGHT_UART:FAIL") != std::string::npos);
+    CHECK(Serial.output.find("INIT:WEB") == std::string::npos);
+    CHECK(Serial.output.find("POST:SETTINGS") == std::string::npos);
+    CHECK(lastTelemetry() == "STATE:FAULT,TIME_LEFT:0,ERR:1");
+    Serial.input = "CMD:STOP\n";
+    runSilence(100);
+    CHECK(lastTelemetry().find("STATE:FAULT") == 0);
+    Serial2.failBegin = false;
+    setup();
+    Serial.input = "CMD:STOP\n";
+    runSilence(100);
+    CHECK(lastTelemetry().find("STATE:SAFE") == 0);
+  });
   runFsmHeartbeatTests();
   runFsmArmedTests();
   runSettingsTests();
