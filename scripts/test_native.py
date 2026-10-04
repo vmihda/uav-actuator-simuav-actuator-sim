@@ -16,10 +16,11 @@ def main():
     output.mkdir(parents=True, exist_ok=True)
     executable = output / "contract-tests"
     sources = ["test/native/test_main.cpp", "test/native/test_fsm_heartbeat.cpp",
+               "test/native/test_fsm_armed.cpp",
                "test/native/test_settings.cpp", "src/settings.cpp", "src/settings_file.cpp",
                "test/native/test_pwm_decoder.cpp", "src/pwm_decoder.cpp",
                "test/native/test_power_monitor.cpp", "src/power_monitor.cpp",
-               "test/native/test_button_monitor.cpp", "src/button_monitor.cpp",
+               "test/native/test_button_monitor.cpp", "src/button_monitor.cpp", "src/gpio_contact_sensor.cpp",
                "test/native/test_self_test.cpp", "src/self_test.cpp",
                "test/native/test_sim_vin.cpp",
                "test/support/pwm_input_fake.cpp", "test/support/device_info_fake.cpp",

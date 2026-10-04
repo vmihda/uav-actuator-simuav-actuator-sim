@@ -31,19 +31,22 @@ void runSettingsTests() {
     CHECK(s.powerMinMv == 4500 && s.powerMaxMv == 5500);
     CHECK(s.powerSimulatedDefaultMv == 5000 && s.powerStableMs == 1000);
     CHECK(s.buttonDebounceMs == 50 && s.buttonStuckMs == 500);
+    CHECK(s.contactPin == 26);
+    CHECK(s.contactDebounceMs == 20 && s.contactStuckMs == 2000);
+    CHECK(s.contactArmedTimeoutMs == 120000);
   });
   test("missing, unknown and malformed settings name the field", [] {
     CHECK(rejection(replaced(defaults(), "\"stable_ms\": 200, ", "")) ==
           "pwm.stable_ms is missing");
-    CHECK(rejection(replaced(defaults(), "\"version\": 1,", "\"version\": 1, \"extra\": 1,")) ==
+    CHECK(rejection(replaced(defaults(), "\"version\": 2,", "\"version\": 2, \"extra\": 1,")) ==
           "extra is not a known setting");
-    CHECK(rejection(replaced(defaults(), "\"button\": 0}", "\"button\": 0, \"led\": 4}")) ==
+    CHECK(rejection(replaced(defaults(), "\"contact\": 26}", "\"contact\": 26, \"led\": 4}")) ==
           "pins.led is not a known setting");
-    CHECK(rejection(replaced(defaults(), "\"version\": 1", "\"version\": 2")) ==
-          "version must be within 1..1");
-    CHECK(rejection(replaced(defaults(), "\"pins\": {\"pwm_input\": 27, \"button\": 0}", "\"pins\": 5")) ==
+    CHECK(rejection(replaced(defaults(), "\"version\": 2", "\"version\": 1")) ==
+          "version must be within 2..2");
+    CHECK(rejection(replaced(defaults(), "\"pins\": {\"pwm_input\": 27, \"button\": 0, \"contact\": 26}", "\"pins\": 5")) ==
           "pins must be an object");
-    CHECK(rejection("{\"version\": 1,").find("settings.json is not valid JSON") == 0);
+    CHECK(rejection("{\"version\": 2,").find("settings.json is not valid JSON") == 0);
     CHECK(rejection("[1, 2]") == "settings.json must be an object");
   });
   test("settings reject values of the wrong JSON type", [] {
@@ -75,13 +78,13 @@ void runSettingsTests() {
           "pins.pwm_input conflicts with the UART or LED pins");
     CHECK(rejection(replaced(defaults(), "\"pwm_input\": 27", "\"pwm_input\": 7")) ==
           "pins.pwm_input is not a usable GPIO");
-    CHECK(rejection(replaced(defaults(), "\"button\": 0}", "\"button\": 35}")) ==
+    CHECK(rejection(replaced(defaults(), "\"button\": 0,", "\"button\": 35,")) ==
           "pins.button needs an internal pull-up (GPIO 0-33)");
-    CHECK(rejection(replaced(defaults(), "\"button\": 0}", "\"button\": 27}")) ==
+    CHECK(rejection(replaced(defaults(), "\"button\": 0,", "\"button\": 27,")) ==
           "pins.button must differ from pins.pwm_input");
-    CHECK(rejection(replaced(defaults(), "\"button\": 0}", "\"button\": 2}")) ==
+    CHECK(rejection(replaced(defaults(), "\"button\": 0,", "\"button\": 2,")) ==
           "pins.button conflicts with the UART or LED pins");
-    const std::string disabled = replaced(defaults(), "\"button\": 0}", "\"button\": -1}");
+    const std::string disabled = replaced(defaults(), "\"button\": 0,", "\"button\": -1,");
     Settings settings{};
     char error[128];
     CHECK(parseSettings(disabled.c_str(), disabled.size(), settings, error, sizeof(error)));
@@ -97,8 +100,42 @@ void runSettingsTests() {
     CHECK(rejection(replaced(defaults(), "\"debounce_ms\": 50", "\"debounce_ms\": 5")) ==
           "button.debounce_ms must be within 10..200");
   });
+  test("the contact whisker pin must be usable and must not collide", [] {
+    CHECK(rejection(replaced(defaults(), "\"contact\": 26}", "\"contact\": 27}")) ==
+          "pins.contact must differ from pins.pwm_input");
+    CHECK(rejection(replaced(defaults(), "\"contact\": 26}", "\"contact\": 0}")) ==
+          "pins.contact must differ from pins.button");
+    CHECK(rejection(replaced(defaults(), "\"contact\": 26}", "\"contact\": 17}")) ==
+          "pins.contact conflicts with the UART or LED pins");
+    CHECK(rejection(replaced(defaults(), "\"contact\": 26}", "\"contact\": 36}")) ==
+          "pins.contact needs an internal pull-up (GPIO 0-33)");
+    CHECK(rejection(replaced(defaults(), "\"contact\": 26}", "\"contact\": 9}")) ==
+          "pins.contact is not a usable GPIO");
+    const std::string simulated = replaced(defaults(), "\"contact\": 26}", "\"contact\": -1}");
+    Settings settings{};
+    char error[128];
+    CHECK(parseSettings(simulated.c_str(), simulated.size(), settings, error, sizeof(error)));
+    CHECK(settings.contactPin == -1);
+    // A disabled button frees its pin for the whiskers.
+    const std::string shared = replaced(replaced(defaults(), "\"button\": 0,", "\"button\": -1,"),
+                                        "\"contact\": 26}", "\"contact\": 0}");
+    CHECK(parseSettings(shared.c_str(), shared.size(), settings, error, sizeof(error)));
+  });
+  test("contact whisker timings are range checked", [] {
+    CHECK(rejection(replaced(defaults(), "\"debounce_ms\": 20", "\"debounce_ms\": 2")) ==
+          "contact.debounce_ms must be within 5..200");
+    CHECK(rejection(replaced(defaults(), "\"stuck_ms\": 2000", "\"stuck_ms\": 4000")) ==
+          "contact.stuck_ms must be within 100..3000");
+    CHECK(rejection(replaced(replaced(defaults(), "\"debounce_ms\": 20", "\"debounce_ms\": 150"),
+                             "\"stuck_ms\": 2000", "\"stuck_ms\": 120")) ==
+          "contact.stuck_ms must exceed contact.debounce_ms");
+    CHECK(rejection(replaced(defaults(), "\"armed_timeout_ms\": 120000", "\"armed_timeout_ms\": 500")) ==
+          "contact.armed_timeout_ms must be within 1000..3600000");
+    CHECK(rejection(replaced(defaults(), ", \"armed_timeout_ms\": 120000", "")) ==
+          "contact.armed_timeout_ms is missing");
+  });
   test("a small error buffer is truncated, never overflowed", [] {
-    const std::string json = replaced(defaults(), "\"version\": 1", "\"version\": 2");
+    const std::string json = replaced(defaults(), "\"version\": 2", "\"version\": 1");
     Settings settings{};
     char error[8];
     std::memset(error, 'X', sizeof(error));

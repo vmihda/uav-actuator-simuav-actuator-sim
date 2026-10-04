@@ -56,6 +56,10 @@ void ActuatorFsm::update(uint32_t now) {
       static_cast<uint32_t>(now - stateSince_) >= armingMs_) {
     transition(ActuatorState::ARMED, now);
   }
+  if (state_ == ActuatorState::ARMED && armedTimeoutMs_ > 0 &&
+      static_cast<uint32_t>(now - stateSince_) >= armedTimeoutMs_) {
+    transition(ActuatorState::SAFE, now);
+  }
   if (state_ == ActuatorState::ACTUATED && pulseActive_ &&
       static_cast<uint32_t>(now - stateSince_) >= pulseMs_) {
     pulseActive_ = false;

@@ -69,12 +69,16 @@ ErrorCode runSelfTest(SelfTestMode mode, const SelfTestInputs& in, SelfTestLog l
 
   if (!in.settingsOk) {
     report.skipped("BUTTON");
+    report.skipped("CONTACT");
     report.skipped("POWER");
     report.skipped("PWM");
   } else {
     if (!in.buttonEnabled) report.skipped("BUTTON", "disabled");
     else if (in.buttonStuck) report.fail("BUTTON", "held down", ErrorCode::ButtonStuck);
     else report.ok("BUTTON");
+
+    if (in.contactStuck) report.fail("CONTACT", "closed", ErrorCode::ContactStuck);
+    else report.ok("CONTACT");
 
     // Recovery uses the running monitor: bad now counts even before it persists.
     if (in.powerVerdict != PowerVerdict::Ok)

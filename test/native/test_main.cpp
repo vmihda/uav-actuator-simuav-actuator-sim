@@ -31,6 +31,7 @@ void loop();
 int failures = 0;
 int cases = 0;
 void runFsmHeartbeatTests();
+void runFsmArmedTests();
 void runSettingsTests();
 void runPwmDecoderTests();
 void runPowerMonitorTests();
@@ -61,6 +62,13 @@ void runSilence(uint32_t durationMs) {
   }
 }
 // Latest USB telemetry line; reading it, unlike /status, is not a heartbeat.
+// Keeps the 30 s control deadline alive the way the web panel does.
+void runWithStatus(uint32_t durationMs) {
+  for (uint32_t elapsed = 0; elapsed < durationMs; elapsed += 1000) {
+    WebServer::latest->request("/status", HTTP_GET);
+    runSilence(1000);
+  }
+}
 std::string lastTelemetry() {
   const auto at = Serial.output.rfind("STATE:");
   if (at == std::string::npos) return "";
@@ -591,7 +599,9 @@ int main() {
     CHECK(http.statusCode == 200);
     Serial.input = "CMD:START\n";
     loop();
-    for (fakeNow = 1000; fakeNow <= 300000; fakeNow += 1000) {
+    // Relative to the end of boot: the boot sampling window length depends on settings.
+    const auto armedFrom = fakeNow;
+    for (fakeNow = armedFrom + 1000; fakeNow <= armedFrom + 300000; fakeNow += 1000) {
       http.request("/status", HTTP_GET);
       loop();
     }
@@ -678,7 +688,104 @@ int main() {
     runSilence(100);
     CHECK(lastTelemetry().find("STATE:SAFE") == 0);
   });
+  test("whiskers are ignored while arming and deploy once armed", [] {
+    Serial.input = "CMD:START\n";
+    runSilence(100);
+    CHECK(lastTelemetry().find("STATE:ARMING") == 0);
+    fakeInputLow[26] = true;
+    runSilence(500);
+    fakeInputLow[26] = false;
+    runSilence(100);
+    CHECK(Serial.output.find("CONTACT:CLOSED") != std::string::npos);
+    CHECK(Serial.output.find("CONTACT:DEPLOY") == std::string::npos);
+    CHECK(lastTelemetry().find("STATE:ARMING") == 0);
+    runWithStatus(300000);
+    CHECK(lastTelemetry() == "STATE:ARMED,TIME_LEFT:0,ERR:0");
+    fakeInputLow[26] = true;
+    runSilence(100);
+    CHECK(Serial.output.find("CONTACT:DEPLOY") != std::string::npos);
+    CHECK(lastTelemetry().find("STATE:ACTUATED") == 0);
+    CHECK(LittleFS.files["/events.log"].find("STATE:ACTUATED,COUNT:3\n") != std::string::npos);
+    fakeInputLow[26] = false;
+    runSilence(100);
+    Serial.input = "CMD:STOP\n";
+    runSilence(100);
+    CHECK(lastTelemetry().find("STATE:SAFE") == 0);
+  });
+  test("closed whiskers refuse START and fault once stuck", [] {
+    auto& http = *WebServer::latest;
+    fakeInputLow[26] = true;
+    runSilence(100);
+    http.request("/start", HTTP_POST);
+    CHECK(http.statusCode == 409);
+    CHECK(Serial.output.find("CONTACT:START_REFUSED") != std::string::npos);
+    runSilence(2000);
+    CHECK(lastTelemetry() == "STATE:FAULT,TIME_LEFT:0,ERR:12");
+    http.request("/stop", HTTP_POST);
+    CHECK(http.statusCode == 409);
+    fakeInputLow[26] = false;
+    runSilence(100);
+    http.request("/stop", HTTP_POST);
+    CHECK(http.statusCode == 200);
+    runSilence(100);
+    CHECK(lastTelemetry().find("STATE:SAFE") == 0);
+  });
+  test("ARMED without whisker contact returns to SAFE after the armed timeout", [] {
+    Serial.input = "CMD:START\n";
+    runSilence(100);
+    runWithStatus(300000);
+    CHECK(lastTelemetry() == "STATE:ARMED,TIME_LEFT:0,ERR:0");
+    runWithStatus(119000);
+    CHECK(lastTelemetry() == "STATE:ARMED,TIME_LEFT:0,ERR:0");
+    runWithStatus(2000);
+    CHECK(lastTelemetry() == "STATE:SAFE,TIME_LEFT:0,ERR:0");
+  });
+  test("SIM:CONTACT is rejected while the whiskers use a GPIO", [] {
+    Serial.input = "SIM:CONTACT:1\n";
+    runSilence(100);
+    CHECK(Serial.output.find("SIM:CONTACT:1:REJECTED") != std::string::npos);
+    CHECK(lastTelemetry().find("STATE:SAFE") == 0);
+  });
+  test("boot with closed whiskers fails the CONTACT self-test", [] {
+    // The FSM only leaves POST once; a fault stands in for a fresh boot here.
+    Serial.input = "BAD\n";
+    runSilence(100);
+    CHECK(lastTelemetry() == "STATE:FAULT,TIME_LEFT:0,ERR:2");
+    LittleFS.files["/settings.json"] = readText("data/settings.json");
+    fakeInputLow[26] = true;
+    Serial.output.clear();
+    setup();
+    fakeInputLow[26] = false;
+    CHECK(Serial.output.find("POST:CONTACT:FAIL:closed") != std::string::npos);
+    CHECK(lastTelemetry() == "STATE:FAULT,TIME_LEFT:0,ERR:12");
+    runSilence(100);
+    WebServer::latest->request("/stop", HTTP_POST);
+    CHECK(WebServer::latest->statusCode == 200);
+  });
+  test("simulated whiskers follow SIM:CONTACT and deploy once armed", [] {
+    LittleFS.files["/settings.json"] =
+        replaced(readText("data/settings.json"), "\"contact\": 26}", "\"contact\": -1}");
+    Serial.output.clear();
+    setup();
+    CHECK(Serial.output.find("POST:CONTACT:OK") != std::string::npos);
+    CHECK(lastTelemetry().find("STATE:SAFE") == 0);
+    Serial.input = "CMD:START\n";
+    runSilence(100);
+    runWithStatus(300000);
+    CHECK(lastTelemetry() == "STATE:ARMED,TIME_LEFT:0,ERR:0");
+    Serial.input = "SIM:CONTACT:1\n";
+    runSilence(100);
+    CHECK(Serial.output.find("SIM:CONTACT:1:OK") != std::string::npos);
+    CHECK(Serial.output.find("CONTACT:DEPLOY") != std::string::npos);
+    CHECK(lastTelemetry().find("STATE:ACTUATED") == 0);
+    Serial.input = "SIM:CONTACT:0\n";
+    runSilence(100);
+    Serial.input = "CMD:STOP\n";
+    runSilence(100);
+    CHECK(lastTelemetry().find("STATE:SAFE") == 0);
+  });
   runFsmHeartbeatTests();
+  runFsmArmedTests();
   runSettingsTests();
   runPwmDecoderTests();
   runPowerMonitorTests();

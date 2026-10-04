@@ -4,7 +4,8 @@
 #include "command_handler.h"
 #include "uart_protocol.h"
 
-using SimulationHandler = bool (*)(int32_t millivolts);
+// Applies a SimulateVin or SimulateContact value; false when the input is not simulated.
+using SimulationHandler = bool (*)(ParseKind kind, int32_t value);
 
 class UartHandler {
  public:

@@ -17,6 +17,7 @@ SelfTestInputs healthy() {
                          4u * 1024 * 1024, 200000};
   in.buttonEnabled = true;
   in.buttonStuck = false;
+  in.contactStuck = false;
   in.powerVerdict = PowerVerdict::Ok;
   in.powerInstant = PowerVerdict::Ok;
   in.pwmReady = true;
@@ -31,10 +32,10 @@ ErrorCode run(SelfTestMode mode, const SelfTestInputs& in) {
 }  // namespace
 
 void runSelfTestTests() {
-  test("a healthy boot self-test logs all eight checks", [] {
+  test("a healthy boot self-test logs all nine checks", [] {
     CHECK(run(SelfTestMode::Boot, healthy()) == ErrorCode::None);
     const std::vector<std::string> expected = {"POST:FS:OK", "POST:SETTINGS:OK", "POST:CHIP:OK",
-        "POST:HEAP:OK", "POST:BUTTON:OK", "POST:POWER:OK", "POST:PWM:OK", "POST:LINKS:OK"};
+        "POST:HEAP:OK", "POST:BUTTON:OK", "POST:CONTACT:OK", "POST:POWER:OK", "POST:PWM:OK", "POST:LINKS:OK"};
     CHECK(lines == expected);
   });
   test("the first failing check decides the fault code", [] {
@@ -50,11 +51,13 @@ void runSelfTestTests() {
     SelfTestInputs in = healthy();
     in.settingsOk = false;
     in.buttonStuck = true;
+    in.contactStuck = true;
     in.powerVerdict = PowerVerdict::OutOfRange;
     CHECK(run(SelfTestMode::Boot, in) == ErrorCode::SettingsInvalid);
     CHECK(lines[4] == "POST:BUTTON:SKIPPED");
-    CHECK(lines[5] == "POST:POWER:SKIPPED");
-    CHECK(lines[6] == "POST:PWM:SKIPPED");
+    CHECK(lines[5] == "POST:CONTACT:SKIPPED");
+    CHECK(lines[6] == "POST:POWER:SKIPPED");
+    CHECK(lines[7] == "POST:PWM:SKIPPED");
   });
   test("each failing check maps to its fault code", [] {
     SelfTestInputs in = healthy();
@@ -75,6 +78,13 @@ void runSelfTestTests() {
     in = healthy();
     in.linksOk = false;
     CHECK(run(SelfTestMode::Boot, in) == ErrorCode::SelfTestFailed);
+  });
+  test("closed contact whiskers fail the self-test with their own code", [] {
+    SelfTestInputs in = healthy();
+    in.contactStuck = true;
+    CHECK(run(SelfTestMode::Boot, in) == ErrorCode::ContactStuck);
+    CHECK(lines[5] == "POST:CONTACT:FAIL:closed");
+    CHECK(run(SelfTestMode::Recovery, in) == ErrorCode::ContactStuck);
   });
   test("a disabled button is skipped, not failed", [] {
     SelfTestInputs in = healthy();

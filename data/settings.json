@@ -1,6 +1,6 @@
 {
-  "version": 1,
-  "pins": {"pwm_input": 27, "button": 0},
+  "version": 2,
+  "pins": {"pwm_input": 27, "button": 0, "contact": 26},
   "pwm": {
     "valid_min_us": 800, "valid_max_us": 2200,
     "stop": {"min_us": 900, "max_us": 1300},
@@ -9,5 +9,6 @@
     "stable_ms": 200, "loss_timeout_ms": 500
   },
   "power": {"min_mv": 4500, "max_mv": 5500, "simulated_default_mv": 5000, "stable_ms": 1000},
-  "button": {"debounce_ms": 50, "stuck_ms": 500}
+  "button": {"debounce_ms": 50, "stuck_ms": 500},
+  "contact": {"debounce_ms": 20, "stuck_ms": 2000, "armed_timeout_ms": 120000}
 }

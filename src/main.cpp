@@ -14,6 +14,7 @@
 #include "device_info.h"
 #include "event_log.h"
 #include "fsm.h"
+#include "gpio_contact_sensor.h"
 #include "indicators.h"
 #include "power_monitor.h"
 #include "pwm_decoder.h"
@@ -40,6 +41,12 @@ SimulatedSensor supplySensor("supply_mv", 0);
 PowerMonitor powerMonitor;
 PwmCommandDecoder pwmDecoder;
 ButtonMonitor button;
+// Contact whiskers: a GPIO switch, or the simulated sensor when pins.contact is -1.
+SimulatedSensor simulatedContact("contact", 0);
+GpioContactSensor gpioContact("contact");
+Sensor* contactSensor = &simulatedContact;
+ButtonMonitor contact;
+bool reportedContact = false;
 bool pwmReady = false;
 bool dispatchCommand(Command command, uint32_t now);
 UartHandler flightUart(Serial2, fsm, dispatchCommand);
@@ -59,8 +66,8 @@ ActuatorWebServer web(fsm, dispatchLocalWebCommand);
 #endif
 #if ENABLE_USB_COMMANDS
 // The USB UART is initialized by setup; only the test build accepts commands.
-bool setSimulatedSupply(int32_t millivolts);
-UartHandler usbConsole(Serial, fsm, dispatchCommand, setSimulatedSupply);
+bool simulateInput(ParseKind kind, int32_t value);
+UartHandler usbConsole(Serial, fsm, dispatchCommand, simulateInput);
 #endif
 bool webReady = false;
 bool watchdogReady = false;
@@ -87,9 +94,12 @@ const char* commandName(Command command) {
 }
 
 #if ENABLE_USB_COMMANDS
-bool setSimulatedSupply(int32_t millivolts) {
-  if (!supplySensor.isSimulated()) return false;
-  supplySensor.set(millivolts);
+bool simulateInput(ParseKind kind, int32_t value) {
+  SimulatedSensor* target = nullptr;
+  if (kind == ParseKind::SimulateVin && supplySensor.isSimulated()) target = &supplySensor;
+  if (kind == ParseKind::SimulateContact && contactSensor->isSimulated()) target = &simulatedContact;
+  if (!target) return false;
+  target->set(value);
   return true;
 }
 #endif
@@ -166,6 +176,11 @@ bool linksHealthy() {
 
 bool buttonRaw() { return settings.buttonPin >= 0 && digitalRead(settings.buttonPin) == LOW; }
 
+bool contactRaw(uint32_t now) {
+  const SensorReading reading = contactSensor->read(now);
+  return reading.valid && reading.value != 0;
+}
+
 void configureInputs() {
   supplySensor.set(settings.powerSimulatedDefaultMv);
   powerMonitor.configure(&supplySensor, settings.powerMinMv, settings.powerMaxMv, settings.powerStableMs);
@@ -173,6 +188,16 @@ void configureInputs() {
   pwmReady = pwmInputBegin(settings.pwmInputPin);
   button.configure(settings.buttonDebounceMs, settings.buttonStuckMs);
   if (settings.buttonPin >= 0) pinMode(settings.buttonPin, INPUT_PULLUP);
+  simulatedContact.set(0);
+  if (settings.contactPin >= 0) {
+    gpioContact.begin(settings.contactPin);
+    contactSensor = &gpioContact;
+  } else {
+    contactSensor = &simulatedContact;
+  }
+  contact = ButtonMonitor();
+  contact.configure(settings.contactDebounceMs, settings.contactStuckMs);
+  fsm.setArmedTimeout(settings.contactArmedTimeoutMs);
 }
 
 SelfTestInputs selfTestInputs(bool storageOk, uint32_t now) {
@@ -183,6 +208,7 @@ SelfTestInputs selfTestInputs(bool storageOk, uint32_t now) {
   in.device = readDeviceInfo();
   in.buttonEnabled = settingsOk && settings.buttonPin >= 0;
   in.buttonStuck = in.buttonEnabled && button.stuck(now);
+  in.contactStuck = settingsOk && contact.stuck(now);
   in.powerVerdict = powerMonitor.verdict();
   in.powerInstant = powerMonitor.instant();
   in.pwmReady = pwmReady;
@@ -205,14 +231,16 @@ ErrorCode bootSelfTest() {
   logDevice(readDeviceInfo());
   if (settingsOk) {
     configureInputs();
-    // Sample button and supply together, long enough for both persistence windows.
-    const uint32_t window = settings.buttonStuckMs > settings.powerStableMs ?
+    // Sample button, whiskers and supply together, long enough for every persistence window.
+    uint32_t window = settings.buttonStuckMs > settings.powerStableMs ?
         settings.buttonStuckMs : settings.powerStableMs;
+    if (settings.contactStuckMs > window) window = settings.contactStuckMs;
     const uint32_t start = millis();
     for (;;) {
       const uint32_t now = millis();
       powerMonitor.update(now);
       button.update(buttonRaw(), now);
+      contact.update(contactRaw(now), now);
       if (static_cast<uint32_t>(now - start) >= window) break;
       delay(10);
     }
@@ -285,6 +313,23 @@ void serviceButton(uint32_t now) {
   }
 }
 
+// Whiskers are inert until ARMED: the safety timer is what enables them.
+void serviceContact(uint32_t now) {
+  contact.update(contactRaw(now), now);
+  if (contact.pressed() != reportedContact) {
+    reportedContact = contact.pressed();
+    logLine(reportedContact ? "CONTACT:CLOSED" : "CONTACT:OPEN");
+  }
+  const ActuatorState state = fsm.state();
+  if (state == ActuatorState::ARMED && contact.pressed()) {
+    logLine("CONTACT:DEPLOY");
+    dispatchCommand(Command::Deploy, now);
+  } else if ((state == ActuatorState::SAFE || state == ActuatorState::ARMING) &&
+             contact.stuck(now)) {
+    fsm.fault(ErrorCode::ContactStuck, now);
+  }
+}
+
 // PWM must pass through STOP again after a fault unless it already sits there.
 void trackFault() {
   const bool faulted = fsm.state() == ActuatorState::FAULT;
@@ -306,6 +351,10 @@ bool dispatchCommand(Command command, uint32_t now) {
   if (command == Command::Stop && fsm.state() == ActuatorState::FAULT) {
     const ErrorCode error = recoverySelfTest(now);
     fsm.completePost(error == ErrorCode::None, now, error);
+  }
+  if (command == Command::Start && fsm.state() == ActuatorState::SAFE && contact.pressed()) {
+    logLine("CONTACT:START_REFUSED");
+    return false;
   }
   if (command == Command::Deploy && fsm.state() == ActuatorState::ARMED) {
     // Persist the event before starting even the simulated output pulse.
@@ -352,6 +401,7 @@ void loop() {
     servicePower(millis());
     servicePwm(millis());
     serviceButton(millis());
+    serviceContact(millis());
   }
   flightUart.update(millis());
 #if ENABLE_USB_COMMANDS

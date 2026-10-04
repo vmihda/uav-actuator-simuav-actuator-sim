@@ -117,7 +117,7 @@ test('an older poll response cannot overwrite a newer command response', async (
 test('new fault codes have readable names', async () => {
   const ui = fixture(); await settle();
   const names = {6:'Settings invalid', 7:'Button stuck', 8:'PWM signal invalid', 9:'PWM signal lost',
-    10:'Supply voltage out of range', 11:'Sensor failure'};
+    10:'Supply voltage out of range', 11:'Sensor failure', 12:'Contact whiskers stuck'};
   for (const [code, name] of Object.entries(names)) {
     ui.status({state:'FAULT', err:Number(code)}); ui.poll(); await settle();
     assert.equal(ui.elements.error.textContent, code + ' / ' + name);
