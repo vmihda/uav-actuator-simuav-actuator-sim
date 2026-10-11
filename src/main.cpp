@@ -367,19 +367,85 @@ bool dispatchCommand(Command command, uint32_t now) {
   }
   return fsm.handle(command, now);
 }
+
+enum class InitStep : uint8_t { Pins, DebugUart, FlightUart, Web, Watchdog, SelfTest, Done, Error };
+
+const char* initStepName(InitStep step) {
+  switch (step) {
+    case InitStep::Pins: return "PINS";
+    case InitStep::DebugUart: return "DEBUG_UART";
+    case InitStep::FlightUart: return "FLIGHT_UART";
+    case InitStep::Web: return "WEB";
+    case InitStep::Watchdog: return "WATCHDOG";
+    case InitStep::SelfTest: return "SELF_TEST";
+    case InitStep::Done: return "DONE";
+    case InitStep::Error: return "ERROR";
+  }
+  return "ERROR";
+}
+
+void logInitStep(InitStep step, bool ok) {
+  char line[32];
+  std::snprintf(line, sizeof(line), "INIT:%s:%s", initStepName(step), ok ? "OK" : "FAIL");
+  logLine(line);
+}
 }  // namespace
 
 void setup() {
-  Serial.begin(config::kBaudRate);
-  indicators.begin();
-  flightUart.begin();
-  webReady = startWeb();
-  watchdogReady = esp_task_wdt_init(5, true) == ESP_OK;
-  if (watchdogReady) {
-    enableLoopWDT();
-    watchdogReady = esp_task_wdt_status(nullptr) == ESP_OK;
+  // Boot runs one step at a time; the first failure skips the rest and lands in FAULT.
+  settingsOk = false;
+  InitStep step = InitStep::Pins;
+  InitStep failed = InitStep::Done;
+  ErrorCode error = ErrorCode::None;
+  bool initDone = false;
+  while (!initDone) {
+    InitStep next = InitStep::Error;
+    switch (step) {
+      case InitStep::Pins:
+        // Outputs go to a known level first; the result is logged once the debug UART is up.
+        if (indicators.begin()) next = InitStep::DebugUart;
+        break;
+      case InitStep::DebugUart:
+        Serial.begin(config::kBaudRate);
+        if (Serial) {
+          logInitStep(InitStep::Pins, true);
+          next = InitStep::FlightUart;
+        }
+        break;
+      case InitStep::FlightUart:
+        if (flightUart.begin()) next = InitStep::Web;
+        break;
+      case InitStep::Web:
+        webReady = startWeb();
+        if (webReady) next = InitStep::Watchdog;
+        break;
+      case InitStep::Watchdog:
+        watchdogReady = esp_task_wdt_init(5, true) == ESP_OK;
+        if (watchdogReady) {
+          enableLoopWDT();
+          watchdogReady = esp_task_wdt_status(nullptr) == ESP_OK;
+        }
+        if (watchdogReady) next = InitStep::SelfTest;
+        break;
+      case InitStep::SelfTest:
+        error = bootSelfTest();
+        next = InitStep::Done;
+        break;
+      case InitStep::Done:
+        initDone = true;
+        continue;
+      case InitStep::Error:
+        // A pin failure happens before the debug UART exists.
+        if (failed == InitStep::Pins) Serial.begin(config::kBaudRate);
+        logInitStep(failed, false);
+        error = ErrorCode::SelfTestFailed;
+        initDone = true;
+        continue;
+    }
+    if (next == InitStep::Error) failed = step;
+    else if (step != InitStep::Pins && step != InitStep::SelfTest) logInitStep(step, true);
+    step = next;
   }
-  const ErrorCode error = bootSelfTest();
   const uint32_t now = millis();
   fsm.completePost(error == ErrorCode::None, now, error);
 #ifdef ARDUINO

@@ -2,7 +2,9 @@
 #include <Arduino.h>
 #include "indicator_pattern.h"
 
-void Indicators::begin() {
+bool Indicators::begin() {
+  if (!digitalPinCanOutput(config::kLedPin)) return false;
+  if (config::kBuzzerPin >= 0 && !digitalPinCanOutput(config::kBuzzerPin)) return false;
   pinMode(config::kLedPin, OUTPUT);
   digitalWrite(config::kLedPin, LOW);
   if (config::kBuzzerPin >= 0) {
@@ -10,6 +12,7 @@ void Indicators::begin() {
     digitalWrite(config::kBuzzerPin, LOW);
   }
   on_ = false;
+  return true;
 }
 
 void Indicators::update(const ActuatorFsm& fsm, uint32_t now) {
